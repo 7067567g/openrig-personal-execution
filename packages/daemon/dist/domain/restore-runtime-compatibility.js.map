@@ -1,0 +1,1 @@
+{"version":3,"file":"restore-runtime-compatibility.js","sourceRoot":"","sources":["../../src/domain/restore-runtime-compatibility.ts"],"names":[],"mappings":"AAAA,uFAAuF;AACvF,MAAM,UAAU,gCAAgC,CAC9C,OAAsB,EACtB,cAAyC;IAEzC,IAAI,CAAC,OAAO,IAAI,CAAC,cAAc,IAAI,cAAc,KAAK,OAAO;QAAE,OAAO,IAAI,CAAC;IAC3E,OAAO,0HAA0H,CAAC;AACpI,CAAC"}

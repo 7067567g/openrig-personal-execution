@@ -1,0 +1,1332 @@
+import { readFileSync, mkdirSync, unlinkSync, existsSync } from "node:fs";
+import { writeTextAtomically } from "./atomic-text-write.js";
+import { join, dirname } from "node:path";
+import { homedir } from "node:os";
+import { getDefaultOpenRigPath, readOpenRigEnv, } from "./openrig-compat.js";
+const DEFAULT_WORKSPACE_ROOT = getDefaultOpenRigPath("workspace");
+/** OPR.0.5.3.6 — twin of the daemon settings-store helper. The LEGACY topology
+ *  location, kept readable (advisory-emitting fallback) so pre-convention rigs
+ *  migrate instead of flag-daying. Resolves where legacy code ACTUALLY wrote —
+ *  the codex adapter's shared-docs precedent (OPENRIG_SHARED_DOCS_ROOT env,
+ *  else the literal ~/.openrig/shared-docs), NOT $OPENRIG_HOME: boxes with a
+ *  non-default home still carry their legacy tree at ~/.openrig/shared-docs.
+ *  This is the ONE CLI home for the literal; walkers import it and carry none. */
+export function resolveLegacyTopologyRigsRoot() {
+    const sharedDocsRoot = process.env["OPENRIG_SHARED_DOCS_ROOT"]?.trim()
+        || join(homedir(), ".openrig", "shared-docs");
+    return join(sharedDocsRoot, "rigs");
+}
+const DEFAULT_CLAUDE_COMPACTION_PRE_COMPACT_INSTRUCTION = "Read the claude-compaction-restore skill and follow its \"If You Are About To Compact\" protocol. Create or update the mental-model restore map before compaction. If you are in the middle of a tiny atomic step, finish that step first; otherwise this preparation is the next priority.";
+const DEFAULT_CLAUDE_COMPACTION_COMPACT_INSTRUCTION = "";
+const DEFAULT_CLAUDE_COMPACTION_RESTORE_INSTRUCTION = "Read the claude-compaction-restore skill and follow its \"If You Just Compacted\" protocol.";
+const DEFAULT_CLAUDE_COMPACTION_POST_RESTORE_AUDIT_INSTRUCTION = "Read the claude-compaction-restore skill and follow its \"Required Read-Depth Audit\" protocol.";
+const DEFAULT_CLAUDE_COMPACTION_EXTRA_INSTRUCTION_FILE_PATH = getDefaultOpenRigPath("compaction/post-compact-extra.md");
+const DEFAULTS = {
+    launch: { nonInterruptive: false },
+    daemon: { port: 7433, host: "127.0.0.1" },
+    // OPR.0.4.6.MH1 FR-1 — "local" ≡ no remote selection (LOCAL_HOST_ID).
+    // FR-4 — own-host display name; default "localhost" (PRD-named).
+    host: { selected: "local", name: "localhost" },
+    db: { path: getDefaultOpenRigPath("openrig.sqlite") },
+    transcripts: { enabled: true, path: getDefaultOpenRigPath("transcripts"), lines: 1000, pollIntervalSeconds: 2 },
+    workspace: {
+        root: DEFAULT_WORKSPACE_ROOT,
+        slicesRoot: "",
+        steeringPath: "",
+        specsRoot: "",
+        projectsRoot: "",
+        catalogPath: "",
+        // No synthetic username-based human address.
+        operatorSeatName: "",
+    },
+    // OPR.0.5.3.6 D1 — derived under the OpenRig home, never a shared-docs literal.
+    topology: { root: getDefaultOpenRigPath("topology") },
+    // OPR.0.5.9.5 Wave B — canonical addressable context library.
+    context: { root: getDefaultOpenRigPath("context"), systemWorld: "default" },
+    skills: { root: getDefaultOpenRigPath("skills") },
+    onboarding: { defaultPack: { enabled: true } },
+    health: { contextPressure: { warningPercent: 95, criticalPercent: 99 } },
+    files: { allowlist: "" },
+    progress: { scanRoots: "" },
+    ui: {
+        enabled: false,
+        timezone: "America/Los_Angeles",
+        preview: {
+            refreshIntervalSeconds: 3,
+            maxPins: 4,
+            defaultLines: 50,
+        },
+    },
+    recovery: {
+        autoDriveProviderPrompts: false,
+        providerAuthEnvAllowlist: "",
+    },
+    // V1 Phase 4 — Advisor default per universal-shell.md L83;
+    // Operator default empty per L84 ("not configured").
+    agents: {
+        advisorSession: "advisor-lead@kernel",
+        operatorSession: "",
+    },
+    // V1 Phase 5 P5-3 — feed subscription defaults per for-you-feed.md
+    // L144–L151. action_required forced ON in UI (load-bearing
+    // human-gate items per L145; cannot be disabled); approvals/
+    // shipped/progress default ON; audit_log default OFF (verbose;
+    // opt-in for triage runs).
+    feed: {
+        subscriptions: {
+            actionRequired: true,
+            approvals: true,
+            shipped: true,
+            progress: true,
+            auditLog: false,
+        },
+    },
+    // Runtime readiness keeps the existing 30-second default; Codex hooks stay on.
+    runtime: {
+        readinessTimeoutSeconds: 30,
+        codex: {
+            hooksEnabled: true,
+        },
+    },
+    // Slice 27 — opt-in default-off. Threshold default 80% per spec.
+    policies: {
+        claudeCompaction: {
+            enabled: false,
+            thresholdPercent: 80,
+            preCompactInstruction: DEFAULT_CLAUDE_COMPACTION_PRE_COMPACT_INSTRUCTION,
+            compactInstruction: DEFAULT_CLAUDE_COMPACTION_COMPACT_INSTRUCTION,
+            messageInline: DEFAULT_CLAUDE_COMPACTION_RESTORE_INSTRUCTION,
+            messageFilePath: DEFAULT_CLAUDE_COMPACTION_EXTRA_INSTRUCTION_FILE_PATH,
+            postRestoreAuditInstruction: DEFAULT_CLAUDE_COMPACTION_POST_RESTORE_AUDIT_INSTRUCTION,
+        },
+        idleGateQitem: {
+            scanIntervalSeconds: 60,
+            activeWakeIntervalSeconds: 900,
+            autoRegister: "off",
+            optInSessions: "",
+        },
+    },
+    snapshots: {
+        periodic: {
+            enabled: true,
+            intervalSeconds: 300,
+            retentionKeep: 10,
+        },
+    },
+    // OPR.0.4.6.02 S1 — inner-tmux status bar OFF at launch by default.
+    terminal: {
+        statusBar: false,
+    },
+    // Slice 15 — compact command-output defaults OFF until the switch is on.
+    output: {
+        compact: false,
+        whoamiPeers: 8,
+    },
+    // Slice 01 — Codex usage windows OFF until the switch is on.
+    provider: {
+        usageWindows: false,
+    },
+    // Slice 02 — Pi cost facts OFF until the switch is on.
+    usage: {
+        piCostFacts: false,
+        piOpenRouterCharge: false,
+    },
+    // Input-box evidence for verified sends OFF until the switch is on.
+    transport: {
+        verifyInputBox: false,
+    },
+    // OPR.0.4.6.FS-1 W2 — retention defaults (twin of daemon getDefaultValue).
+    retention: {
+        enabled: true,
+        transitionsDays: 30,
+        watchdogDays: 14,
+        watchdogKeepPerJob: 50,
+        batchSize: 500,
+    },
+    // S04 — pickup-receipt stall threshold default (twin of daemon getDefaultValue).
+    queue: {
+        pickupStallThresholdMinutes: 3,
+        stuckSweepIntervalSeconds: 300,
+        stuckSweepUnclaimedAgeMinutes: 60,
+        wakeRetryIntervalSeconds: 300,
+        wakeRetryCap: 3,
+        wakeUnconfirmedWindowMinutes: 30,
+        wakeSwapGraceSeconds: 180,
+        wakeHumanRung: "always",
+    },
+    // OPR.0.7.0 P1a — off until explicitly enabled; caps are bounded by the
+    // same constraints in both stores.
+    resources: {
+        admission: {
+            enabled: false,
+            maxConcurrent: 4,
+            maxPerRig: 2,
+            reservedInteractive: 1,
+            queueTimeoutSeconds: 300,
+        },
+        toolchain: {
+            enabled: false,
+            jobs: 0,
+        },
+        providerLimit: {
+            enabled: false,
+            maxActiveSeats: 0,
+            launchesPerMinute: 0,
+            burst: 4,
+            queueTimeoutSeconds: 30,
+        },
+    },
+    budget: {
+        enabled: false,
+        maxWallTimeSeconds: 1800,
+        maxSteps: 200,
+        maxToolCalls: 100,
+        maxTokens: 0,
+        maxRetries: 0,
+    },
+};
+export const VALID_KEYS = [
+    "daemon.port",
+    "daemon.host",
+    // OPR.0.4.6.MH1 FR-1 — the persisted host-selection pointer (the
+    // kubectl current-context shape). ONE static key, lockstep with the
+    // daemon settings-store twin (parity test pins both). Registry-
+    // membership validation of the VALUE happens at the `rig host select`
+    // verb layer (the store stays value-agnostic); the daemon config
+    // write is the one write path — the CLI verb is a thin client.
+    // Default "local" (unset ≡ the local host — the FR-2 zero-regression
+    // posture by construction).
+    "host.selected",
+    // OPR.0.4.6.MH1 FR-4 — the own-host display name (arch Ruling 1: home =
+    // the settings twins, never hosts.yaml). One stored name, every surface
+    // reads it (dashboard/explorer/ls/whoami). Write path = the daemon
+    // config write via `rig host rename` (thin client, same as select).
+    "host.name",
+    // OPR.0.4.6.WF5 FR-2 — the host-level maturity-dial default (lockstep
+    // with the daemon settings twin). "orchestrator" | "human_only";
+    // unset ≡ orchestrator-first.
+    "workflow.exception_routing",
+    "db.path",
+    "transcripts.enabled",
+    "transcripts.path",
+    // V1 pre-release CLI/daemon Item 1 — SC-29 EXCEPTION #4 allowlist
+    // sub-piece: transcript rotation tunables (line count + poll interval).
+    "transcripts.lines",
+    "transcripts.poll_interval_seconds",
+    "workspace.root",
+    "workspace.slices_root",
+    "workspace.steering_path",
+    "workspace.specs_root",
+    "workspace.projects_root",
+    "workspace.catalog_path",
+    // OPR.0.5.3.6 D1 — the topology tree root; lockstep with the daemon
+    // settings-store twin. Derived default $OPENRIG_HOME/topology; the legacy
+    // shared-docs/rigs location stays readable via the daemon's
+    // resolveLegacyTopologyRigsRoot fallback (advisory-emitting).
+    "topology.root",
+    // OPR.0.5.9.5 Wave B — canonical context library; old key is refused.
+    "context.root",
+    "context.system_world",
+    "skills.root",
+    "onboarding.default_pack.enabled",
+    "launch.non_interruptive",
+    "health.context_pressure.warning_percent",
+    "health.context_pressure.critical_percent",
+    "files.allowlist",
+    "progress.scan_roots",
+    "ui.preview.refresh_interval_seconds",
+    "ui.preview.max_pins",
+    "ui.preview.default_lines",
+    "ui.timezone",
+    "ui.enabled",
+    "recovery.auto_drive_provider_prompts",
+    "recovery.provider_auth_env_allowlist",
+    // V1 Phase 4 SC-29 exception — allowlist-only additions.
+    "agents.advisor_session",
+    "agents.operator_session",
+    // Explicit operator override (OPENRIG_* only; no legacy alias).
+    "workspace.operator_seat_name",
+    // V1 Phase 5 P5-3 SC-29 exception — allowlist-only additions.
+    "feed.subscriptions.action_required",
+    "feed.subscriptions.approvals",
+    "feed.subscriptions.shipped",
+    "feed.subscriptions.progress",
+    "feed.subscriptions.audit_log",
+    // plugin-primitive Phase 3a slice 3.5 — Codex feature flag.
+    "runtime.codex.hooks_enabled",
+    "runtime.readiness_timeout_seconds",
+    // Slice 27 — Claude auto-compaction policy. SC-29 EXCEPTION #10:
+    // 7 ConfigStore keys (lockstep with daemon SETTINGS_VALID_KEYS).
+    "policies.claude_compaction.enabled",
+    "policies.claude_compaction.threshold_percent",
+    "policies.claude_compaction.pre_compact_instruction",
+    "policies.claude_compaction.compact_instruction",
+    "policies.claude_compaction.message_inline",
+    "policies.claude_compaction.message_file_path",
+    "policies.claude_compaction.post_restore_audit_instruction",
+    "policies.idle_gate_qitem.scan_interval_seconds",
+    "policies.idle_gate_qitem.active_wake_interval_seconds",
+    // B6 founder ruling — idle-gate auto-registration is NOT default-on; twin of
+    // the daemon settings-store keys (see there for semantics).
+    "policies.idle_gate_qitem.auto_register",
+    "policies.idle_gate_qitem.opt_in_sessions",
+    "snapshots.periodic.enabled",
+    "snapshots.periodic.interval_seconds",
+    "snapshots.periodic.retention_keep",
+    // OPR.0.4.6.02 S1 — inner-tmux status-bar launch default. ONE static
+    // boolean (default off), lockstep with the daemon settings-store twin
+    // (the parity test pins both). Flip is future-launches-only (BR-1).
+    "terminal.status_bar",
+    // Slice 15 — compact command-output defaults; lockstep with the daemon twin.
+    "output.compact",
+    "output.whoami_peers",
+    // Slice 01 — Codex and Claude usage windows in the provider view; lockstep with the daemon twin.
+    "provider.usage_windows",
+    "usage.pi_cost_facts",
+    "usage.pi_openrouter_charge",
+    "transport.verify_input_box",
+    // OPR.0.4.6.FS-1 W2 — queue-retention maintenance knobs; CLI-settable twin,
+    // lockstep with the daemon settings-store SETTINGS_VALID_KEYS.
+    "retention.enabled",
+    "retention.transitions_days",
+    "retention.watchdog_days",
+    "retention.watchdog_keep_per_job",
+    "retention.batch_size",
+    // S04 — pickup-receipt stall threshold; lockstep with the daemon settings-store twin.
+    "queue.pickup_stall_threshold_minutes",
+    // S02 — standing-stuck-sweep cadence + unclaimed-obligation age; same lockstep.
+    "queue.stuck_sweep_interval_seconds",
+    "queue.stuck_sweep_unclaimed_age_minutes",
+    // S01 — wake-or-escalate ladder: retry cadence + cap, F1 window, F2 swap grace.
+    "queue.wake_retry_interval_seconds",
+    "queue.wake_retry_cap",
+    "queue.wake_unconfirmed_window_minutes",
+    "queue.wake_swap_grace_seconds",
+    // #811 — whether the operator rung posts agent-to-agent escalations to a person.
+    // Under explicit-only, an ask that needs a person must be addressed to the person;
+    // without a human registry, explicit-only posts everything, as always does.
+    "queue.wake_human_rung",
+    // OPR.0.7.0 P1a — default-off seat launch admission (lockstep with daemon).
+    "resources.admission.enabled",
+    "resources.admission.max_concurrent",
+    "resources.admission.max_per_rig",
+    "resources.admission.reserved_interactive",
+    "resources.admission.queue_timeout_seconds",
+    // OPR.0.7.0 P1a — default-off per-turn task budgets (lockstep with daemon).
+    "budget.enabled",
+    "budget.max_wall_time_seconds",
+    "budget.max_steps",
+    "budget.max_tool_calls",
+    "budget.max_tokens",
+    "budget.max_retries",
+    // OPR.0.7.0 P1b — default-off toolchain projection + provider seat limits
+    // (lockstep with daemon).
+    "resources.toolchain.enabled",
+    "resources.toolchain.jobs",
+    "resources.provider_limit.enabled",
+    "resources.provider_limit.max_active_seats",
+    "resources.provider_limit.launches_per_minute",
+    "resources.provider_limit.burst",
+    "resources.provider_limit.queue_timeout_seconds",
+];
+export const ENV_MAP = {
+    // Only the original runtime keys keep RIGGED_* aliases for upgrade
+    // compatibility. New typed keys use OPENRIG_* only.
+    "daemon.port": { primary: "OPENRIG_PORT", legacy: "RIGGED_PORT" },
+    // OPR.0.4.6.MH1 FR-1/FR-4 — new keys, OPENRIG_* only (no RIGGED_* legacy).
+    "host.selected": { primary: "OPENRIG_HOST_SELECTED" },
+    "host.name": { primary: "OPENRIG_HOST_NAME" },
+    // OPR.0.4.6.WF5 FR-2 — new key, OPENRIG_* only.
+    "workflow.exception_routing": { primary: "OPENRIG_WORKFLOW_EXCEPTION_ROUTING" },
+    "daemon.host": { primary: "OPENRIG_HOST", legacy: "RIGGED_HOST" },
+    "db.path": { primary: "OPENRIG_DB", legacy: "RIGGED_DB" },
+    "transcripts.enabled": { primary: "OPENRIG_TRANSCRIPTS_ENABLED", legacy: "RIGGED_TRANSCRIPTS_ENABLED" },
+    "transcripts.path": { primary: "OPENRIG_TRANSCRIPTS_PATH", legacy: "RIGGED_TRANSCRIPTS_PATH" },
+    "transcripts.lines": { primary: "OPENRIG_TRANSCRIPTS_LINES" },
+    "transcripts.poll_interval_seconds": { primary: "OPENRIG_TRANSCRIPTS_POLL_INTERVAL_SECONDS" },
+    "workspace.root": { primary: "OPENRIG_WORKSPACE_ROOT" },
+    "workspace.slices_root": { primary: "OPENRIG_WORKSPACE_SLICES_ROOT" },
+    "workspace.steering_path": { primary: "OPENRIG_WORKSPACE_STEERING_PATH" },
+    "workspace.specs_root": { primary: "OPENRIG_WORKSPACE_SPECS_ROOT" },
+    "workspace.projects_root": { primary: "OPENRIG_WORKSPACE_PROJECTS_ROOT" },
+    "workspace.catalog_path": { primary: "OPENRIG_WORKSPACE_CATALOG_PATH" },
+    "topology.root": { primary: "OPENRIG_TOPOLOGY_ROOT" },
+    "context.root": { primary: "OPENRIG_CONTEXT_ROOT" },
+    "context.system_world": { primary: "OPENRIG_CONTEXT_SYSTEM_WORLD" },
+    "skills.root": { primary: "OPENRIG_SKILLS_ROOT" },
+    "onboarding.default_pack.enabled": { primary: "OPENRIG_ONBOARDING_DEFAULT_PACK_ENABLED" },
+    "launch.non_interruptive": { primary: "OPENRIG_LAUNCH_NON_INTERRUPTIVE" },
+    "health.context_pressure.warning_percent": { primary: "OPENRIG_HEALTH_CONTEXT_PRESSURE_WARNING_PERCENT" },
+    "health.context_pressure.critical_percent": { primary: "OPENRIG_HEALTH_CONTEXT_PRESSURE_CRITICAL_PERCENT" },
+    // UEP env-var graduation: existing OPENRIG_FILES_ALLOWLIST /
+    // OPENRIG_PROGRESS_SCAN_ROOTS become the env override for the new
+    // typed keys (no breaking change).
+    "files.allowlist": { primary: "OPENRIG_FILES_ALLOWLIST" },
+    "progress.scan_roots": { primary: "OPENRIG_PROGRESS_SCAN_ROOTS" },
+    "ui.preview.refresh_interval_seconds": { primary: "OPENRIG_UI_PREVIEW_REFRESH_INTERVAL_SECONDS" },
+    "ui.preview.max_pins": { primary: "OPENRIG_UI_PREVIEW_MAX_PINS" },
+    "ui.timezone": { primary: "OPENRIG_UI_TIMEZONE" },
+    "ui.enabled": { primary: "OPENRIG_UI_ENABLED" },
+    "ui.preview.default_lines": { primary: "OPENRIG_UI_PREVIEW_DEFAULT_LINES" },
+    "recovery.auto_drive_provider_prompts": { primary: "OPENRIG_RECOVERY_AUTO_DRIVE_PROVIDER_PROMPTS" },
+    "recovery.provider_auth_env_allowlist": { primary: "OPENRIG_RECOVERY_PROVIDER_AUTH_ENV_ALLOWLIST" },
+    "agents.advisor_session": { primary: "OPENRIG_AGENTS_ADVISOR_SESSION" },
+    "agents.operator_session": { primary: "OPENRIG_AGENTS_OPERATOR_SESSION" },
+    "workspace.operator_seat_name": { primary: "OPENRIG_WORKSPACE_OPERATOR_SEAT_NAME" },
+    "feed.subscriptions.action_required": { primary: "OPENRIG_FEED_SUBSCRIPTIONS_ACTION_REQUIRED" },
+    "feed.subscriptions.approvals": { primary: "OPENRIG_FEED_SUBSCRIPTIONS_APPROVALS" },
+    "feed.subscriptions.shipped": { primary: "OPENRIG_FEED_SUBSCRIPTIONS_SHIPPED" },
+    "feed.subscriptions.progress": { primary: "OPENRIG_FEED_SUBSCRIPTIONS_PROGRESS" },
+    "feed.subscriptions.audit_log": { primary: "OPENRIG_FEED_SUBSCRIPTIONS_AUDIT_LOG" },
+    // Net-new key post-rename: OPENRIG_X primary only per the 5-key
+    // boundary doctrine (no RIGGED_X legacy on net-new keys).
+    "runtime.codex.hooks_enabled": { primary: "OPENRIG_RUNTIME_CODEX_HOOKS_ENABLED" },
+    "runtime.readiness_timeout_seconds": { primary: "OPENRIG_RUNTIME_READINESS_TIMEOUT_SECONDS" },
+    // Slice 27 — Claude auto-compaction policy. OPENRIG_X primary only
+    // (net-new keys, no legacy).
+    "policies.claude_compaction.enabled": { primary: "OPENRIG_POLICIES_CLAUDE_COMPACTION_ENABLED" },
+    "policies.claude_compaction.threshold_percent": { primary: "OPENRIG_POLICIES_CLAUDE_COMPACTION_THRESHOLD_PERCENT" },
+    "policies.claude_compaction.pre_compact_instruction": { primary: "OPENRIG_POLICIES_CLAUDE_COMPACTION_PRE_COMPACT_INSTRUCTION" },
+    "policies.claude_compaction.compact_instruction": { primary: "OPENRIG_POLICIES_CLAUDE_COMPACTION_COMPACT_INSTRUCTION" },
+    "policies.claude_compaction.message_inline": { primary: "OPENRIG_POLICIES_CLAUDE_COMPACTION_MESSAGE_INLINE" },
+    "policies.claude_compaction.message_file_path": { primary: "OPENRIG_POLICIES_CLAUDE_COMPACTION_MESSAGE_FILE_PATH" },
+    "policies.claude_compaction.post_restore_audit_instruction": { primary: "OPENRIG_POLICIES_CLAUDE_COMPACTION_POST_RESTORE_AUDIT_INSTRUCTION" },
+    "policies.idle_gate_qitem.scan_interval_seconds": { primary: "OPENRIG_POLICIES_IDLE_GATE_QITEM_SCAN_INTERVAL_SECONDS" },
+    "policies.idle_gate_qitem.active_wake_interval_seconds": { primary: "OPENRIG_POLICIES_IDLE_GATE_QITEM_ACTIVE_WAKE_INTERVAL_SECONDS" },
+    "policies.idle_gate_qitem.auto_register": { primary: "OPENRIG_POLICIES_IDLE_GATE_QITEM_AUTO_REGISTER" },
+    "policies.idle_gate_qitem.opt_in_sessions": { primary: "OPENRIG_POLICIES_IDLE_GATE_QITEM_OPT_IN_SESSIONS" },
+    "snapshots.periodic.enabled": { primary: "OPENRIG_SNAPSHOTS_PERIODIC_ENABLED" },
+    "snapshots.periodic.interval_seconds": { primary: "OPENRIG_SNAPSHOTS_PERIODIC_INTERVAL_SECONDS" },
+    "snapshots.periodic.retention_keep": { primary: "OPENRIG_SNAPSHOTS_PERIODIC_RETENTION_KEEP" },
+    // OPR.0.4.6.02 S1 — net-new key; OPENRIG_* primary only (no RIGGED_* legacy).
+    "terminal.status_bar": { primary: "OPENRIG_TERMINAL_STATUS_BAR" },
+    "output.compact": { primary: "OPENRIG_OUTPUT_COMPACT" },
+    "output.whoami_peers": { primary: "OPENRIG_OUTPUT_WHOAMI_PEERS" },
+    "provider.usage_windows": { primary: "OPENRIG_PROVIDER_USAGE_WINDOWS" },
+    "usage.pi_cost_facts": { primary: "OPENRIG_USAGE_PI_COST_FACTS" },
+    "usage.pi_openrouter_charge": { primary: "OPENRIG_USAGE_PI_OPENROUTER_CHARGE" },
+    "transport.verify_input_box": { primary: "OPENRIG_TRANSPORT_VERIFY_INPUT_BOX" },
+    // OPR.0.4.6.FS-1 W2 — retention knobs; net-new keys, OPENRIG_* primary only.
+    "retention.enabled": { primary: "OPENRIG_RETENTION_ENABLED" },
+    "retention.transitions_days": { primary: "OPENRIG_RETENTION_TRANSITIONS_DAYS" },
+    "retention.watchdog_days": { primary: "OPENRIG_RETENTION_WATCHDOG_DAYS" },
+    "retention.watchdog_keep_per_job": { primary: "OPENRIG_RETENTION_WATCHDOG_KEEP_PER_JOB" },
+    "retention.batch_size": { primary: "OPENRIG_RETENTION_BATCH_SIZE" },
+    "queue.pickup_stall_threshold_minutes": { primary: "OPENRIG_QUEUE_PICKUP_STALL_THRESHOLD_MINUTES" },
+    "queue.stuck_sweep_interval_seconds": { primary: "OPENRIG_QUEUE_STUCK_SWEEP_INTERVAL_SECONDS" },
+    "queue.stuck_sweep_unclaimed_age_minutes": { primary: "OPENRIG_QUEUE_STUCK_SWEEP_UNCLAIMED_AGE_MINUTES" },
+    "queue.wake_retry_interval_seconds": { primary: "OPENRIG_QUEUE_WAKE_RETRY_INTERVAL_SECONDS" },
+    "queue.wake_retry_cap": { primary: "OPENRIG_QUEUE_WAKE_RETRY_CAP" },
+    "queue.wake_unconfirmed_window_minutes": { primary: "OPENRIG_QUEUE_WAKE_UNCONFIRMED_WINDOW_MINUTES" },
+    "queue.wake_swap_grace_seconds": { primary: "OPENRIG_QUEUE_WAKE_SWAP_GRACE_SECONDS" },
+    "queue.wake_human_rung": { primary: "OPENRIG_QUEUE_WAKE_HUMAN_RUNG" },
+    // OPR.0.7.0 P1a — net-new keys; OPENRIG_* primary only.
+    "resources.admission.enabled": { primary: "OPENRIG_RESOURCES_ADMISSION_ENABLED" },
+    "resources.admission.max_concurrent": { primary: "OPENRIG_RESOURCES_ADMISSION_MAX_CONCURRENT" },
+    "resources.admission.max_per_rig": { primary: "OPENRIG_RESOURCES_ADMISSION_MAX_PER_RIG" },
+    "resources.admission.reserved_interactive": { primary: "OPENRIG_RESOURCES_ADMISSION_RESERVED_INTERACTIVE" },
+    "resources.admission.queue_timeout_seconds": { primary: "OPENRIG_RESOURCES_ADMISSION_QUEUE_TIMEOUT_SECONDS" },
+    "budget.enabled": { primary: "OPENRIG_BUDGET_ENABLED" },
+    "budget.max_wall_time_seconds": { primary: "OPENRIG_BUDGET_MAX_WALL_TIME_SECONDS" },
+    "budget.max_steps": { primary: "OPENRIG_BUDGET_MAX_STEPS" },
+    "budget.max_tool_calls": { primary: "OPENRIG_BUDGET_MAX_TOOL_CALLS" },
+    "budget.max_tokens": { primary: "OPENRIG_BUDGET_MAX_TOKENS" },
+    "budget.max_retries": { primary: "OPENRIG_BUDGET_MAX_RETRIES" },
+    // OPR.0.7.0 P1b — net-new keys; OPENRIG_* primary only.
+    "resources.toolchain.enabled": { primary: "OPENRIG_RESOURCES_TOOLCHAIN_ENABLED" },
+    "resources.toolchain.jobs": { primary: "OPENRIG_RESOURCES_TOOLCHAIN_JOBS" },
+    "resources.provider_limit.enabled": { primary: "OPENRIG_RESOURCES_PROVIDER_LIMIT_ENABLED" },
+    "resources.provider_limit.max_active_seats": { primary: "OPENRIG_RESOURCES_PROVIDER_LIMIT_MAX_ACTIVE_SEATS" },
+    "resources.provider_limit.launches_per_minute": { primary: "OPENRIG_RESOURCES_PROVIDER_LIMIT_LAUNCHES_PER_MINUTE" },
+    "resources.provider_limit.burst": { primary: "OPENRIG_RESOURCES_PROVIDER_LIMIT_BURST" },
+    "resources.provider_limit.queue_timeout_seconds": { primary: "OPENRIG_RESOURCES_PROVIDER_LIMIT_QUEUE_TIMEOUT_SECONDS" },
+};
+// Maps dotted-string config keys to the camelCase RiggedConfig path.
+// Workspace per-subdir keys are stored on disk as `workspace.slices_root`
+// (snake) and exposed in RiggedConfig as `workspace.slicesRoot` (camel)
+// to match TS conventions.
+const KEY_TO_PATH = {
+    "daemon.port": ["daemon", "port"],
+    "host.selected": ["host", "selected"],
+    "host.name": ["host", "name"],
+    "workflow.exception_routing": ["workflow", "exceptionRouting"],
+    "daemon.host": ["daemon", "host"],
+    "db.path": ["db", "path"],
+    "transcripts.enabled": ["transcripts", "enabled"],
+    "transcripts.path": ["transcripts", "path"],
+    "transcripts.lines": ["transcripts", "lines"],
+    "transcripts.poll_interval_seconds": ["transcripts", "pollIntervalSeconds"],
+    "workspace.root": ["workspace", "root"],
+    "workspace.slices_root": ["workspace", "slicesRoot"],
+    "workspace.steering_path": ["workspace", "steeringPath"],
+    "workspace.specs_root": ["workspace", "specsRoot"],
+    "workspace.projects_root": ["workspace", "projectsRoot"],
+    "workspace.catalog_path": ["workspace", "catalogPath"],
+    "topology.root": ["topology", "root"],
+    "context.root": ["context", "root"],
+    "context.system_world": ["context", "systemWorld"],
+    "skills.root": ["skills", "root"],
+    "onboarding.default_pack.enabled": ["onboarding", "defaultPack", "enabled"],
+    "launch.non_interruptive": ["launch", "nonInterruptive"],
+    "health.context_pressure.warning_percent": ["health", "contextPressure", "warningPercent"],
+    "health.context_pressure.critical_percent": ["health", "contextPressure", "criticalPercent"],
+    "files.allowlist": ["files", "allowlist"],
+    "progress.scan_roots": ["progress", "scanRoots"],
+    "ui.preview.refresh_interval_seconds": ["ui", "preview", "refreshIntervalSeconds"],
+    "ui.preview.max_pins": ["ui", "preview", "maxPins"],
+    "ui.timezone": ["ui", "timezone"],
+    "ui.enabled": ["ui", "enabled"],
+    "ui.preview.default_lines": ["ui", "preview", "defaultLines"],
+    "recovery.auto_drive_provider_prompts": ["recovery", "autoDriveProviderPrompts"],
+    "recovery.provider_auth_env_allowlist": ["recovery", "providerAuthEnvAllowlist"],
+    "agents.advisor_session": ["agents", "advisorSession"],
+    "agents.operator_session": ["agents", "operatorSession"],
+    "workspace.operator_seat_name": ["workspace", "operatorSeatName"],
+    "feed.subscriptions.action_required": ["feed", "subscriptions", "actionRequired"],
+    "feed.subscriptions.approvals": ["feed", "subscriptions", "approvals"],
+    "feed.subscriptions.shipped": ["feed", "subscriptions", "shipped"],
+    "feed.subscriptions.progress": ["feed", "subscriptions", "progress"],
+    "feed.subscriptions.audit_log": ["feed", "subscriptions", "auditLog"],
+    "runtime.codex.hooks_enabled": ["runtime", "codex", "hooksEnabled"],
+    "runtime.readiness_timeout_seconds": ["runtime", "readinessTimeoutSeconds"],
+    "policies.claude_compaction.enabled": ["policies", "claudeCompaction", "enabled"],
+    "policies.claude_compaction.threshold_percent": ["policies", "claudeCompaction", "thresholdPercent"],
+    "policies.claude_compaction.pre_compact_instruction": ["policies", "claudeCompaction", "preCompactInstruction"],
+    "policies.claude_compaction.compact_instruction": ["policies", "claudeCompaction", "compactInstruction"],
+    "policies.claude_compaction.message_inline": ["policies", "claudeCompaction", "messageInline"],
+    "policies.claude_compaction.message_file_path": ["policies", "claudeCompaction", "messageFilePath"],
+    "policies.claude_compaction.post_restore_audit_instruction": ["policies", "claudeCompaction", "postRestoreAuditInstruction"],
+    "policies.idle_gate_qitem.scan_interval_seconds": ["policies", "idleGateQitem", "scanIntervalSeconds"],
+    "policies.idle_gate_qitem.active_wake_interval_seconds": ["policies", "idleGateQitem", "activeWakeIntervalSeconds"],
+    "policies.idle_gate_qitem.auto_register": ["policies", "idleGateQitem", "autoRegister"],
+    "policies.idle_gate_qitem.opt_in_sessions": ["policies", "idleGateQitem", "optInSessions"],
+    "snapshots.periodic.enabled": ["snapshots", "periodic", "enabled"],
+    "snapshots.periodic.interval_seconds": ["snapshots", "periodic", "intervalSeconds"],
+    "snapshots.periodic.retention_keep": ["snapshots", "periodic", "retentionKeep"],
+    "terminal.status_bar": ["terminal", "statusBar"],
+    "output.compact": ["output", "compact"],
+    "output.whoami_peers": ["output", "whoamiPeers"],
+    "provider.usage_windows": ["provider", "usageWindows"],
+    "usage.pi_cost_facts": ["usage", "piCostFacts"],
+    "usage.pi_openrouter_charge": ["usage", "piOpenRouterCharge"],
+    "transport.verify_input_box": ["transport", "verifyInputBox"],
+    "retention.enabled": ["retention", "enabled"],
+    "retention.transitions_days": ["retention", "transitionsDays"],
+    "retention.watchdog_days": ["retention", "watchdogDays"],
+    "retention.watchdog_keep_per_job": ["retention", "watchdogKeepPerJob"],
+    "retention.batch_size": ["retention", "batchSize"],
+    "queue.pickup_stall_threshold_minutes": ["queue", "pickupStallThresholdMinutes"],
+    "queue.stuck_sweep_interval_seconds": ["queue", "stuckSweepIntervalSeconds"],
+    "queue.stuck_sweep_unclaimed_age_minutes": ["queue", "stuckSweepUnclaimedAgeMinutes"],
+    "queue.wake_retry_interval_seconds": ["queue", "wakeRetryIntervalSeconds"],
+    "queue.wake_retry_cap": ["queue", "wakeRetryCap"],
+    "queue.wake_unconfirmed_window_minutes": ["queue", "wakeUnconfirmedWindowMinutes"],
+    "queue.wake_swap_grace_seconds": ["queue", "wakeSwapGraceSeconds"],
+    "queue.wake_human_rung": ["queue", "wakeHumanRung"],
+    "resources.admission.enabled": ["resources", "admission", "enabled"],
+    "resources.admission.max_concurrent": ["resources", "admission", "maxConcurrent"],
+    "resources.admission.max_per_rig": ["resources", "admission", "maxPerRig"],
+    "resources.admission.reserved_interactive": ["resources", "admission", "reservedInteractive"],
+    "resources.admission.queue_timeout_seconds": ["resources", "admission", "queueTimeoutSeconds"],
+    "budget.enabled": ["budget", "enabled"],
+    "budget.max_wall_time_seconds": ["budget", "maxWallTimeSeconds"],
+    "budget.max_steps": ["budget", "maxSteps"],
+    "budget.max_tool_calls": ["budget", "maxToolCalls"],
+    "budget.max_tokens": ["budget", "maxTokens"],
+    "budget.max_retries": ["budget", "maxRetries"],
+    "resources.toolchain.enabled": ["resources", "toolchain", "enabled"],
+    "resources.toolchain.jobs": ["resources", "toolchain", "jobs"],
+    "resources.provider_limit.enabled": ["resources", "providerLimit", "enabled"],
+    "resources.provider_limit.max_active_seats": ["resources", "providerLimit", "maxActiveSeats"],
+    "resources.provider_limit.launches_per_minute": ["resources", "providerLimit", "launchesPerMinute"],
+    "resources.provider_limit.burst": ["resources", "providerLimit", "burst"],
+    "resources.provider_limit.queue_timeout_seconds": ["resources", "providerLimit", "queueTimeoutSeconds"],
+};
+function isValidKey(key) {
+    return VALID_KEYS.includes(key);
+}
+const REMOVED_CONTEXT_KEY = "context.packs_root";
+const REMOVED_CONTEXT_ENV = "OPENRIG_CONTEXT_PACKS_ROOT";
+export function removedContextSettingMessage(key) {
+    return key === REMOVED_CONTEXT_KEY
+        ? 'Config key "context.packs_root" was removed; use "context.root".'
+        : null;
+}
+function assertNoRemovedContextSetting(fileConfig) {
+    if (process.env[REMOVED_CONTEXT_ENV]?.trim()) {
+        throw new Error("OPENRIG_CONTEXT_PACKS_ROOT was removed; use OPENRIG_CONTEXT_ROOT (config key context.root).");
+    }
+    if (getNestedValue(fileConfig, ["context", "packsRoot"]) !== undefined) {
+        throw new Error('Config file contains removed key "context.packs_root" (context.packsRoot); replace it with "context.root" (context.root).');
+    }
+}
+// ── OPR.0.4.4.15 (G15-P1) — TWIN of the daemon settings-store's ONE
+// registered dynamic key class: `feed.subscriptions.<hostId>.enabled`
+// (boolean; v1 per-host key set CLOSED to {enabled}; no env mapping).
+// Kept in lockstep with packages/daemon/src/domain/user-settings/
+// settings-store.ts — the parity test pins both twins (host-registry twin
+// discipline). Reserved segments cover key-level snake_case AND FILE-level
+// camelCase toggle names so no host id shadows a flat toggle at either
+// layer. Every other unknown key keeps the reject-loud behavior.
+const FEED_HOST_KEY_RE = /^feed\.subscriptions\.([A-Za-z0-9_-]+)\.enabled$/;
+export const FEED_HOST_RESERVED_SEGMENTS = new Set([
+    "action_required",
+    "actionRequired",
+    "approvals",
+    "shipped",
+    "progress",
+    "audit_log",
+    "auditLog",
+    "enabled",
+]);
+export function parseFeedHostSubscriptionKey(key) {
+    const m = key.match(FEED_HOST_KEY_RE);
+    if (!m)
+        return null;
+    const hostId = m[1];
+    if (FEED_HOST_RESERVED_SEGMENTS.has(hostId))
+        return null;
+    return { hostId };
+}
+function coerceFeedHostSubscriptionValue(key, raw) {
+    const v = raw.trim().toLowerCase();
+    if (v === "true")
+        return true;
+    if (v === "false")
+        return false;
+    throw new Error(`Invalid value for ${key}: expected "true" or "false", got "${raw}"`);
+}
+function getNestedValue(obj, parts) {
+    let current = obj;
+    for (const part of parts) {
+        if (current == null || typeof current !== "object")
+            return undefined;
+        current = current[part];
+    }
+    return current;
+}
+function setNestedValue(obj, parts, value) {
+    let current = obj;
+    for (let i = 0; i < parts.length - 1; i++) {
+        const part = parts[i];
+        if (!(part in current) || typeof current[part] !== "object" || current[part] === null) {
+            current[part] = {};
+        }
+        current = current[part];
+    }
+    current[parts[parts.length - 1]] = value;
+}
+// Per-subdir defaults derived from workspace.root. Steering is a FILE path.
+// Slice discovery defaults to the mission-aware workspace/missions contract;
+// the indexer remains backward-compatible with flat slice roots when an
+// operator sets workspace.slices_root explicitly.
+// Files and Progress default to the whole workspace so a fresh
+// `rig config init-workspace` install is browsable without extra env wiring.
+export function deriveWorkspaceDefault(key, workspaceRoot) {
+    switch (key) {
+        case "workspace.slices_root": return join(workspaceRoot, "missions");
+        case "workspace.steering_path": return join(workspaceRoot, "STEERING.md");
+        case "workspace.specs_root": return join(workspaceRoot, "specs");
+        case "workspace.projects_root": return join(workspaceRoot, "projects");
+        case "workspace.catalog_path": return join(workspaceRoot, "workspace.yaml");
+        case "files.allowlist": return `workspace:${workspaceRoot}`;
+        case "progress.scan_roots": return `workspace:${workspaceRoot}`;
+        // Same unset default as the daemon settings store.
+        case "workspace.operator_seat_name": return ""; // unset: discover a registered human, never invent a kernel seat
+        default: return "";
+    }
+}
+function deriveLegacyWorkspaceDefault(key, workspaceRoot) {
+    switch (key) {
+        case "workspace.slices_root": return join(workspaceRoot, "slices");
+        case "workspace.steering_path": return join(workspaceRoot, "steering", "STEERING.md");
+        default: return null;
+    }
+}
+const WORKSPACE_DERIVED_KEYS = new Set([
+    "workspace.slices_root",
+    "workspace.steering_path",
+    "workspace.specs_root",
+    "workspace.projects_root",
+    "workspace.catalog_path",
+    "files.allowlist",
+    "progress.scan_roots",
+    "workspace.operator_seat_name",
+]);
+function getDefaultValue(key, workspaceRoot) {
+    if (WORKSPACE_DERIVED_KEYS.has(key)) {
+        return deriveWorkspaceDefault(key, workspaceRoot);
+    }
+    return getNestedValue(DEFAULTS, KEY_TO_PATH[key]);
+}
+function coerceValue(key, raw, workspaceRoot) {
+    const defaultVal = getDefaultValue(key, workspaceRoot);
+    if (typeof defaultVal === "number") {
+        const n = parseInt(raw, 10);
+        if (isNaN(n))
+            throw new Error(`Invalid value for ${key}: expected a number, got "${raw}"`);
+        return n;
+    }
+    if (typeof defaultVal === "boolean") {
+        if (raw === "true" || raw === "1")
+            return true;
+        if (raw === "false" || raw === "0")
+            return false;
+        throw new Error(`Invalid value for ${key}: expected true/false, got "${raw}"`);
+    }
+    return raw;
+}
+// Slice 27 — strict per-key constraint validators applied AFTER coerceValue
+// in `set()`. The generic coerce uses parseInt which accepts partial
+// parses (e.g., "80abc" → 80) and truncates fractions ("80.5" → 80); for
+// keys with documented range/integer contracts this is unsafe. Per
+// banked feedback_static_gates_mirror_runtime_validators, the runtime
+// validator is the source of truth and must reject what the contract
+// forbids.
+function positiveIntegerConstraint(key) {
+    return (raw, coerced) => {
+        if (!/^\d+$/.test((raw ?? "").trim()) || typeof coerced !== "number" || !Number.isInteger(coerced) || coerced <= 0) {
+            throw new Error(`Invalid value for ${key}: must be a positive integer, got "${raw}"`);
+        }
+    };
+}
+function wakeHumanRungConstraint(raw) {
+    if (raw !== "always" && raw !== "explicit-only") {
+        throw new Error(`Invalid value for queue.wake_human_rung: must be "always" or "explicit-only", got "${raw}"`);
+    }
+}
+/** OPR.0.7.0 P1a — budget/admission counters accept 0 (= unlimited/off). */
+function nonNegativeIntegerConstraint(key) {
+    return (raw, coerced) => {
+        if (!/^\d+$/.test((raw ?? "").trim()) || typeof coerced !== "number" || !Number.isInteger(coerced) || coerced < 0) {
+            throw new Error(`Invalid value for ${key}: must be a non-negative integer, got "${raw}"`);
+        }
+    };
+}
+function percentageConstraint(key) {
+    return (raw, coerced) => {
+        if (!/^\d+$/.test((raw ?? "").trim())
+            || typeof coerced !== "number"
+            || !Number.isInteger(coerced)
+            || coerced < 1
+            || coerced > 100) {
+            throw new Error(`Invalid value for ${key}: must be an integer in [1, 100], got "${raw}"`);
+        }
+    };
+}
+const KEY_CONSTRAINTS = {
+    "transcripts.lines": (raw, value) => {
+        if (!/^\d+$/.test(raw.trim()) || typeof value !== "number" || !Number.isSafeInteger(value) || value < 1 || value > 1_000_000) {
+            throw new Error("Invalid transcripts.lines: must be an integer in [1, 1000000]");
+        }
+    },
+    "transcripts.poll_interval_seconds": (raw, value) => {
+        if (!/^\d+$/.test(raw.trim()) || typeof value !== "number" || !Number.isSafeInteger(value) || value < 1 || value > 3600) {
+            throw new Error("Invalid transcripts.poll_interval_seconds: must be an integer in [1, 3600]");
+        }
+    },
+    "runtime.readiness_timeout_seconds": (raw, coerced) => {
+        if (!/^\d+$/.test(raw.trim()) || typeof coerced !== "number" || !Number.isInteger(coerced) || coerced < 1 || coerced > 600) {
+            throw new Error(`Invalid value for runtime.readiness_timeout_seconds: must be an integer in [1, 600], got "${raw}"`);
+        }
+    },
+    // daemon.port had no KEY_CONSTRAINTS entry, so `rig config set daemon.port
+    // 99999` stored 99999 and the next daemon start died with a raw
+    // ERR_SOCKET_BAD_PORT from serve(). The check range-validates the value
+    // the runtime actually consumes — the same parseInt the boot path runs on
+    // OPENRIG_PORT (startServer) — rather than the raw input format, so
+    // everything that resolves today keeps resolving: 7433abc, 7433.5 and
+    // +7433 resolve to 7433, 1e4 to 1, 0x1D11 to 0, and a quoted in-range
+    // port in config.json ("7434") stays "7434". Only ports that cannot be
+    // bound are refused. 0 stays legal: checkPort treats port <= 0 as
+    // "always available" and the repo's own preflight tests write
+    // daemon.port = 0 on purpose. The ui.preview.* keys are deliberately
+    // unconstrained: their consumers floor/clamp out-of-range values today
+    // (refresh 0 disables polling on purpose; max_pins floors to 1; the
+    // daemon preview route falls back to 50 lines), so tightening them here
+    // would refuse input that works.
+    "daemon.port": (raw, coerced) => {
+        const port = parseInt(String(coerced), 10);
+        if (Number.isNaN(port) || port < 0 || port > 65535) {
+            throw new Error(`Invalid value for daemon.port: must be an integer in [0, 65535], got "${raw}"`);
+        }
+    },
+    "ui.timezone": (_raw, value) => {
+        try {
+            if (typeof value !== "string" || !value || /^[+-]/.test(value))
+                throw new Error();
+            new Intl.DateTimeFormat("en-US", { timeZone: value });
+        }
+        catch {
+            throw new Error("Invalid ui.timezone: use an IANA timezone such as America/Los_Angeles or Europe/London");
+        }
+    },
+    "health.context_pressure.warning_percent": percentageConstraint("health.context_pressure.warning_percent"),
+    "health.context_pressure.critical_percent": percentageConstraint("health.context_pressure.critical_percent"),
+    "policies.idle_gate_qitem.scan_interval_seconds": positiveIntegerConstraint("policies.idle_gate_qitem.scan_interval_seconds"),
+    "policies.idle_gate_qitem.active_wake_interval_seconds": positiveIntegerConstraint("policies.idle_gate_qitem.active_wake_interval_seconds"),
+    "policies.idle_gate_qitem.auto_register": (raw) => {
+        const v = (raw ?? "").trim();
+        if (v !== "off" && v !== "all") {
+            throw new Error(`Invalid value for policies.idle_gate_qitem.auto_register: must be "off" or "all", got "${raw}"`);
+        }
+    },
+    // Policy threshold: integer in [1, 100]. Documented contract from
+    // slice 27 README §"What the operator gets" — operator can lower to
+    // e.g. 50 = compact earlier; range is 1-100 inclusive. A value of 0
+    // would fire /compact on every poll tick (catastrophic without
+    // default-off as backstop).
+    "policies.claude_compaction.threshold_percent": (raw, coerced) => {
+        const trimmed = (raw ?? "").trim();
+        if (!/^-?\d+$/.test(trimmed)) {
+            throw new Error(`Invalid value for policies.claude_compaction.threshold_percent: expected an integer in [1, 100], got "${raw}"`);
+        }
+        if (typeof coerced !== "number" || !Number.isInteger(coerced)) {
+            throw new Error(`Invalid value for policies.claude_compaction.threshold_percent: expected an integer in [1, 100], got "${raw}"`);
+        }
+        if (coerced < 1 || coerced > 100) {
+            throw new Error(`Invalid value for policies.claude_compaction.threshold_percent: must be in [1, 100], got ${coerced}`);
+        }
+    },
+    "snapshots.periodic.interval_seconds": (raw, coerced) => {
+        if (!/^-?\d+$/.test((raw ?? "").trim())) {
+            throw new Error(`Invalid value for snapshots.periodic.interval_seconds: expected an integer >= 60, got "${raw}"`);
+        }
+        if (typeof coerced !== "number" || !Number.isInteger(coerced) || coerced < 60) {
+            throw new Error(`Invalid value for snapshots.periodic.interval_seconds: must be >= 60, got ${raw}`);
+        }
+    },
+    "snapshots.periodic.retention_keep": (raw, coerced) => {
+        if (!/^-?\d+$/.test((raw ?? "").trim())) {
+            throw new Error(`Invalid value for snapshots.periodic.retention_keep: expected an integer >= 1, got "${raw}"`);
+        }
+        if (typeof coerced !== "number" || !Number.isInteger(coerced) || coerced < 1) {
+            throw new Error(`Invalid value for snapshots.periodic.retention_keep: must be >= 1, got ${raw}`);
+        }
+    },
+    // OPR.0.4.6.FS-1 W2 — retention numeric bounds. Lockstep with the daemon
+    // settings-store KEY_CONSTRAINTS twin (same messages/bounds). retention.enabled
+    // is a boolean (coerceValue enforces true/false) — no constraint entry.
+    // Slice 15 P5 — the whoami peer bound; lockstep with the daemon twin.
+    "output.whoami_peers": (raw, coerced) => {
+        if (!/^-?\d+$/.test((raw ?? "").trim()) || typeof coerced !== "number" || !Number.isInteger(coerced) || coerced < 1) {
+            throw new Error(`Invalid value for output.whoami_peers: must be an integer >= 1, got "${raw}"`);
+        }
+    },
+    "retention.transitions_days": (raw, coerced) => {
+        if (!/^-?\d+$/.test((raw ?? "").trim()) || typeof coerced !== "number" || !Number.isInteger(coerced) || coerced < 1) {
+            throw new Error(`Invalid value for retention.transitions_days: must be an integer >= 1, got "${raw}"`);
+        }
+    },
+    "retention.watchdog_days": (raw, coerced) => {
+        if (!/^-?\d+$/.test((raw ?? "").trim()) || typeof coerced !== "number" || !Number.isInteger(coerced) || coerced < 1) {
+            throw new Error(`Invalid value for retention.watchdog_days: must be an integer >= 1, got "${raw}"`);
+        }
+    },
+    "retention.watchdog_keep_per_job": (raw, coerced) => {
+        if (!/^-?\d+$/.test((raw ?? "").trim()) || typeof coerced !== "number" || !Number.isInteger(coerced) || coerced < 0) {
+            throw new Error(`Invalid value for retention.watchdog_keep_per_job: must be an integer >= 0, got "${raw}"`);
+        }
+    },
+    "retention.batch_size": (raw, coerced) => {
+        if (!/^-?\d+$/.test((raw ?? "").trim()) || typeof coerced !== "number" || !Number.isInteger(coerced) || coerced < 1) {
+            throw new Error(`Invalid value for retention.batch_size: must be an integer >= 1, got "${raw}"`);
+        }
+    },
+    "queue.pickup_stall_threshold_minutes": positiveIntegerConstraint("queue.pickup_stall_threshold_minutes"),
+    "queue.stuck_sweep_interval_seconds": positiveIntegerConstraint("queue.stuck_sweep_interval_seconds"),
+    "queue.stuck_sweep_unclaimed_age_minutes": positiveIntegerConstraint("queue.stuck_sweep_unclaimed_age_minutes"),
+    // S01 — wake-or-escalate ladder knobs (same positive-integer contract).
+    "queue.wake_retry_interval_seconds": positiveIntegerConstraint("queue.wake_retry_interval_seconds"),
+    "queue.wake_retry_cap": positiveIntegerConstraint("queue.wake_retry_cap"),
+    "queue.wake_unconfirmed_window_minutes": positiveIntegerConstraint("queue.wake_unconfirmed_window_minutes"),
+    "queue.wake_swap_grace_seconds": positiveIntegerConstraint("queue.wake_swap_grace_seconds"),
+    "queue.wake_human_rung": wakeHumanRungConstraint,
+    // OPR.0.7.0 P1a — caps are positive; reserved/timeout/tokens/retries accept 0.
+    "resources.admission.max_concurrent": positiveIntegerConstraint("resources.admission.max_concurrent"),
+    "resources.admission.max_per_rig": positiveIntegerConstraint("resources.admission.max_per_rig"),
+    "resources.admission.reserved_interactive": nonNegativeIntegerConstraint("resources.admission.reserved_interactive"),
+    "resources.admission.queue_timeout_seconds": nonNegativeIntegerConstraint("resources.admission.queue_timeout_seconds"),
+    "budget.max_wall_time_seconds": positiveIntegerConstraint("budget.max_wall_time_seconds"),
+    "budget.max_steps": positiveIntegerConstraint("budget.max_steps"),
+    "budget.max_tool_calls": positiveIntegerConstraint("budget.max_tool_calls"),
+    "budget.max_tokens": nonNegativeIntegerConstraint("budget.max_tokens"),
+    "budget.max_retries": nonNegativeIntegerConstraint("budget.max_retries"),
+    // OPR.0.7.0 P1b — 0 disables each limit (twin of the daemon constraints).
+    "resources.toolchain.jobs": nonNegativeIntegerConstraint("resources.toolchain.jobs"),
+    "resources.provider_limit.max_active_seats": nonNegativeIntegerConstraint("resources.provider_limit.max_active_seats"),
+    "resources.provider_limit.launches_per_minute": nonNegativeIntegerConstraint("resources.provider_limit.launches_per_minute"),
+    "resources.provider_limit.burst": nonNegativeIntegerConstraint("resources.provider_limit.burst"),
+    "resources.provider_limit.queue_timeout_seconds": nonNegativeIntegerConstraint("resources.provider_limit.queue_timeout_seconds"),
+};
+function validateKeyConstraints(key, raw, coerced) {
+    const check = KEY_CONSTRAINTS[key];
+    if (check)
+        check(raw, coerced);
+}
+// Slice 27 BLOCKING-FIX-2 — shared coerce + validate, used by every
+// surface that turns operator-supplied input into a typed config value:
+// set() (CLI + daemon write paths), resolveOne env-source branch, and
+// (indirectly via validateTypedValue) the resolveOne file-source branch.
+// Per banked feedback_audit_every_layer_function_and_module_constants:
+// validation must run at every LAYER that ingests untrusted input, not
+// just at write-time.
+function coerceAndValidate(key, raw, workspaceRoot) {
+    const coerced = coerceValue(key, raw, workspaceRoot);
+    validateKeyConstraints(key, raw, coerced);
+    return coerced;
+}
+// File-source values arrive already typed (JSON-parsed). The constraint
+// closure expects (raw, coerced) to drive its regex check too; pass the
+// stringified value so a string-typed file value (e.g., "80abc" written
+// directly into config.json) still trips the regex.
+function validateTypedFileValue(key, value) {
+    const check = KEY_CONSTRAINTS[key];
+    if (!check)
+        return;
+    const raw = typeof value === "string" ? value : String(value);
+    check(raw, value);
+}
+export class ConfigStore {
+    configPath;
+    constructor(configPath) {
+        // GHOST-STAGE (d): the config default WRITE target must be the CANONICAL path the daemon READS
+        // (getOpenRigHome/config.json), NOT the existence-based getCompatibleOpenRigPath which prefers a
+        // legacy ~/.rigged/config.json when canonical is absent. That divergence let `rig config set`
+        // report success while writing a stale operator SIDECAR the daemon never reads (accept-and-drop
+        // family). Reads align to canonical too — the daemon already ignores ~/.rigged.
+        this.configPath = configPath ?? getDefaultOpenRigPath("config.json");
+    }
+    // GHOST-STAGE (d): verify-readback + fail-loud. After a write, RE-READ the file we wrote
+    // (this.configPath) and confirm the value actually persisted. For the DEFAULT store this path is
+    // the CANONICAL config the daemon reads (getOpenRigHome/config.json — the constructor no longer
+    // resolves the legacy ~/.rigged sidecar), so a persisted read here IS proof the daemon sees it.
+    // A read-back MISMATCH means the write silently did not take — we REFUSE loudly rather than report
+    // a phantom success (the accept-and-drop / config-set-success-without-persist class).
+    /** Publish a complete config without truncating the previous usable file. */
+    writeConfig(content) {
+        writeTextAtomically(this.configPath, content, "config");
+    }
+    verifyPersisted(keyPath, expected) {
+        let reread;
+        try {
+            reread = JSON.parse(readFileSync(this.configPath, "utf-8"));
+        }
+        catch (e) {
+            throw new Error(`config write did NOT persist: could not read it back at ${this.configPath} (${e.message}). ` +
+                `Refusing to report success — the change did not take.`);
+        }
+        const got = getNestedValue(reread, keyPath);
+        if (JSON.stringify(got) !== JSON.stringify(expected)) {
+            throw new Error(`config write did NOT persist to ${this.configPath}: it still shows ${JSON.stringify(got)} for ` +
+                `[${keyPath.join(".")}] (expected ${JSON.stringify(expected)}). Refusing to report a phantom success.`);
+        }
+    }
+    resolve() {
+        const fileConfig = this.readConfigFile();
+        // Workspace root must be resolved first so derived per-subdir
+        // defaults can use it.
+        const workspaceRoot = this.resolveOne("workspace.root", fileConfig, DEFAULT_WORKSPACE_ROOT).value;
+        const v = (key) => this.resolveOne(key, fileConfig, workspaceRoot).value;
+        return {
+            daemon: {
+                port: v("daemon.port"),
+                host: v("daemon.host"),
+            },
+            host: {
+                selected: v("host.selected"),
+                name: v("host.name"),
+            },
+            db: {
+                path: v("db.path"),
+            },
+            transcripts: {
+                enabled: v("transcripts.enabled"),
+                path: v("transcripts.path"),
+                lines: v("transcripts.lines"),
+                pollIntervalSeconds: v("transcripts.poll_interval_seconds"),
+            },
+            workspace: {
+                root: workspaceRoot,
+                slicesRoot: v("workspace.slices_root"),
+                steeringPath: v("workspace.steering_path"),
+                specsRoot: v("workspace.specs_root"),
+                projectsRoot: v("workspace.projects_root"),
+                catalogPath: v("workspace.catalog_path"),
+                operatorSeatName: v("workspace.operator_seat_name"),
+            },
+            topology: {
+                root: v("topology.root"),
+            },
+            context: {
+                root: v("context.root"),
+                systemWorld: v("context.system_world"),
+            },
+            skills: {
+                root: v("skills.root"),
+            },
+            onboarding: {
+                defaultPack: {
+                    enabled: v("onboarding.default_pack.enabled"),
+                },
+            },
+            health: {
+                contextPressure: {
+                    warningPercent: v("health.context_pressure.warning_percent"),
+                    criticalPercent: v("health.context_pressure.critical_percent"),
+                },
+            },
+            files: {
+                allowlist: v("files.allowlist"),
+            },
+            progress: {
+                scanRoots: v("progress.scan_roots"),
+            },
+            ui: {
+                enabled: v("ui.enabled"),
+                timezone: v("ui.timezone"),
+                preview: {
+                    refreshIntervalSeconds: v("ui.preview.refresh_interval_seconds"),
+                    maxPins: v("ui.preview.max_pins"),
+                    defaultLines: v("ui.preview.default_lines"),
+                },
+            },
+            recovery: {
+                autoDriveProviderPrompts: v("recovery.auto_drive_provider_prompts"),
+                providerAuthEnvAllowlist: v("recovery.provider_auth_env_allowlist"),
+            },
+            agents: {
+                advisorSession: v("agents.advisor_session"),
+                operatorSession: v("agents.operator_session"),
+            },
+            feed: {
+                subscriptions: {
+                    actionRequired: v("feed.subscriptions.action_required"),
+                    approvals: v("feed.subscriptions.approvals"),
+                    shipped: v("feed.subscriptions.shipped"),
+                    progress: v("feed.subscriptions.progress"),
+                    auditLog: v("feed.subscriptions.audit_log"),
+                },
+            },
+            launch: { nonInterruptive: v("launch.non_interruptive") },
+            runtime: {
+                readinessTimeoutSeconds: v("runtime.readiness_timeout_seconds"),
+                codex: {
+                    hooksEnabled: v("runtime.codex.hooks_enabled"),
+                },
+            },
+            policies: {
+                claudeCompaction: {
+                    enabled: v("policies.claude_compaction.enabled"),
+                    thresholdPercent: v("policies.claude_compaction.threshold_percent"),
+                    preCompactInstruction: v("policies.claude_compaction.pre_compact_instruction"),
+                    compactInstruction: v("policies.claude_compaction.compact_instruction"),
+                    messageInline: v("policies.claude_compaction.message_inline"),
+                    messageFilePath: v("policies.claude_compaction.message_file_path"),
+                    postRestoreAuditInstruction: v("policies.claude_compaction.post_restore_audit_instruction"),
+                },
+                idleGateQitem: {
+                    scanIntervalSeconds: v("policies.idle_gate_qitem.scan_interval_seconds"),
+                    activeWakeIntervalSeconds: v("policies.idle_gate_qitem.active_wake_interval_seconds"),
+                    autoRegister: v("policies.idle_gate_qitem.auto_register"),
+                    optInSessions: v("policies.idle_gate_qitem.opt_in_sessions"),
+                },
+            },
+            snapshots: {
+                periodic: {
+                    enabled: v("snapshots.periodic.enabled"),
+                    intervalSeconds: v("snapshots.periodic.interval_seconds"),
+                    retentionKeep: v("snapshots.periodic.retention_keep"),
+                },
+            },
+            terminal: {
+                statusBar: v("terminal.status_bar"),
+            },
+            output: {
+                compact: v("output.compact"),
+                whoamiPeers: v("output.whoami_peers"),
+            },
+            provider: {
+                usageWindows: v("provider.usage_windows"),
+            },
+            usage: {
+                piCostFacts: v("usage.pi_cost_facts"),
+                piOpenRouterCharge: v("usage.pi_openrouter_charge"),
+            },
+            transport: {
+                verifyInputBox: v("transport.verify_input_box"),
+            },
+            retention: {
+                enabled: v("retention.enabled"),
+                transitionsDays: v("retention.transitions_days"),
+                watchdogDays: v("retention.watchdog_days"),
+                watchdogKeepPerJob: v("retention.watchdog_keep_per_job"),
+                batchSize: v("retention.batch_size"),
+            },
+            queue: {
+                pickupStallThresholdMinutes: v("queue.pickup_stall_threshold_minutes"),
+                stuckSweepIntervalSeconds: v("queue.stuck_sweep_interval_seconds"),
+                stuckSweepUnclaimedAgeMinutes: v("queue.stuck_sweep_unclaimed_age_minutes"),
+                wakeRetryIntervalSeconds: v("queue.wake_retry_interval_seconds"),
+                wakeRetryCap: v("queue.wake_retry_cap"),
+                wakeUnconfirmedWindowMinutes: v("queue.wake_unconfirmed_window_minutes"),
+                wakeSwapGraceSeconds: v("queue.wake_swap_grace_seconds"),
+                wakeHumanRung: v("queue.wake_human_rung"),
+            },
+            resources: {
+                admission: {
+                    enabled: v("resources.admission.enabled"),
+                    maxConcurrent: v("resources.admission.max_concurrent"),
+                    maxPerRig: v("resources.admission.max_per_rig"),
+                    reservedInteractive: v("resources.admission.reserved_interactive"),
+                    queueTimeoutSeconds: v("resources.admission.queue_timeout_seconds"),
+                },
+                toolchain: {
+                    enabled: v("resources.toolchain.enabled"),
+                    jobs: v("resources.toolchain.jobs"),
+                },
+                providerLimit: {
+                    enabled: v("resources.provider_limit.enabled"),
+                    maxActiveSeats: v("resources.provider_limit.max_active_seats"),
+                    launchesPerMinute: v("resources.provider_limit.launches_per_minute"),
+                    burst: v("resources.provider_limit.burst"),
+                    queueTimeoutSeconds: v("resources.provider_limit.queue_timeout_seconds"),
+                },
+            },
+            budget: {
+                enabled: v("budget.enabled"),
+                maxWallTimeSeconds: v("budget.max_wall_time_seconds"),
+                maxSteps: v("budget.max_steps"),
+                maxToolCalls: v("budget.max_tool_calls"),
+                maxTokens: v("budget.max_tokens"),
+                maxRetries: v("budget.max_retries"),
+            },
+        };
+    }
+    /**
+     * Resolve a single key with its source. Used by the daemon HTTP route
+     * + UI Settings panel for honest provenance display (env / file /
+     * default).
+     */
+    resolveWithSource(key) {
+        const removedMessage = removedContextSettingMessage(key);
+        if (removedMessage)
+            throw new Error(removedMessage);
+        // OPR.0.4.4.15: dynamic class resolves file-or-default (no env in v1).
+        const feedHost = parseFeedHostSubscriptionKey(key);
+        if (feedHost) {
+            const fcDyn = this.readConfigFile();
+            const fileVal = getNestedValue(fcDyn, ["feed", "subscriptions", feedHost.hostId, "enabled"]);
+            if (typeof fileVal === "boolean")
+                return { value: fileVal, source: "file", defaultValue: false };
+            return { value: false, source: "default", defaultValue: false };
+        }
+        if (!isValidKey(key)) {
+            throw new Error(`Unknown config key "${key}". Valid keys: ${VALID_KEYS.join(", ")}`);
+        }
+        const fileConfig = this.readConfigFile();
+        const workspaceRoot = this.resolveOne("workspace.root", fileConfig, DEFAULT_WORKSPACE_ROOT).value;
+        return this.resolveOne(key, fileConfig, workspaceRoot);
+    }
+    /** Resolve all valid keys with sources. Convenience for the UI. */
+    resolveAllWithSource() {
+        const fileConfig = this.readConfigFile();
+        const workspaceRoot = this.resolveOne("workspace.root", fileConfig, DEFAULT_WORKSPACE_ROOT).value;
+        const out = {};
+        for (const key of VALID_KEYS) {
+            out[key] = this.resolveOne(key, fileConfig, workspaceRoot);
+        }
+        return out;
+    }
+    resolveOne(key, fileConfig, workspaceRoot) {
+        if (key === "health.context_pressure.warning_percent" || key === "health.context_pressure.critical_percent") {
+            return this.resolveContextPressurePair(fileConfig, workspaceRoot)[key];
+        }
+        return this.resolveOneUnpaired(key, fileConfig, workspaceRoot);
+    }
+    resolveContextPressurePair(fileConfig, workspaceRoot) {
+        const warningKey = "health.context_pressure.warning_percent";
+        const criticalKey = "health.context_pressure.critical_percent";
+        const warning = this.resolveOneUnpaired(warningKey, fileConfig, workspaceRoot);
+        const critical = this.resolveOneUnpaired(criticalKey, fileConfig, workspaceRoot);
+        if (warning.value < critical.value) {
+            return { [warningKey]: warning, [criticalKey]: critical };
+        }
+        process.stderr.write(`[openrig-config] context-pressure policy rejected: warning (${warning.value}) must be less than critical (${critical.value}); falling back to 95/99 defaults\n`);
+        return {
+            [warningKey]: { value: 95, source: "default", defaultValue: 95 },
+            [criticalKey]: { value: 99, source: "default", defaultValue: 99 },
+        };
+    }
+    resolveOneUnpaired(key, fileConfig, workspaceRoot) {
+        const defaultValue = getDefaultValue(key, workspaceRoot);
+        // 1. Environment variable — validate. On invalid env, drop the
+        //    override and fall through to file/default (safer-failure than
+        //    crashing or accepting a bad value). Warn so the operator sees
+        //    the misconfigured env on stderr.
+        const envVal = readOpenRigEnv(ENV_MAP[key].primary, ENV_MAP[key].legacy);
+        if (envVal !== undefined && envVal !== "") {
+            try {
+                return { value: coerceAndValidate(key, envVal, workspaceRoot), source: "env", defaultValue };
+            }
+            catch (err) {
+                const reason = err instanceof Error ? err.message : String(err);
+                process.stderr.write(`[openrig-config] env override for ${key} rejected: ${reason}; falling back to file/default\n`);
+            }
+        }
+        // 2. Config file
+        const fileVal = getNestedValue(fileConfig, KEY_TO_PATH[key]);
+        if (fileVal !== undefined && fileVal !== null && fileVal !== "") {
+            const legacyDefault = deriveLegacyWorkspaceDefault(key, workspaceRoot);
+            if (legacyDefault !== null && fileVal === legacyDefault) {
+                return { value: defaultValue, source: "default", defaultValue };
+            }
+            // Validate the file-source value too. Hand-edited config.json with
+            // a bad threshold (e.g. thresholdPercent: 0 or "80abc") falls back
+            // to default rather than poisoning the trigger contract.
+            try {
+                validateTypedFileValue(key, fileVal);
+                return { value: fileVal, source: "file", defaultValue };
+            }
+            catch (err) {
+                const reason = err instanceof Error ? err.message : String(err);
+                process.stderr.write(`[openrig-config] file value for ${key} rejected: ${reason}; falling back to default\n`);
+            }
+        }
+        // 3. Default
+        return { value: defaultValue, source: "default", defaultValue };
+    }
+    get(key) {
+        return this.resolveWithSource(key).value;
+    }
+    set(key, value) {
+        const removedMessage = removedContextSettingMessage(key);
+        if (removedMessage)
+            throw new Error(removedMessage);
+        // OPR.0.4.4.15: the registered dynamic class is accepted; every other
+        // unknown key keeps the reject-loud behavior below byte-for-byte.
+        const feedHost = parseFeedHostSubscriptionKey(key);
+        if (feedHost) {
+            const coercedDyn = coerceFeedHostSubscriptionValue(key, value);
+            const fcDyn = this.readConfigFile();
+            setNestedValue(fcDyn, ["feed", "subscriptions", feedHost.hostId, "enabled"], coercedDyn);
+            mkdirSync(dirname(this.configPath), { recursive: true });
+            this.writeConfig(JSON.stringify(fcDyn, null, 2) + "\n");
+            this.verifyPersisted(["feed", "subscriptions", feedHost.hostId, "enabled"], coercedDyn);
+            return;
+        }
+        if (!isValidKey(key)) {
+            throw new Error(`Unknown config key "${key}". Valid keys: ${VALID_KEYS.join(", ")}`);
+        }
+        const fileConfig = this.readConfigFile();
+        const workspaceRoot = getNestedValue(fileConfig, KEY_TO_PATH["workspace.root"])
+            || readOpenRigEnv(ENV_MAP["workspace.root"].primary, ENV_MAP["workspace.root"].legacy)
+            || DEFAULT_WORKSPACE_ROOT;
+        const coerced = coerceAndValidate(key, value, workspaceRoot);
+        setNestedValue(fileConfig, KEY_TO_PATH[key], coerced);
+        if (key === "health.context_pressure.warning_percent" || key === "health.context_pressure.critical_percent") {
+            const warning = getNestedValue(fileConfig, KEY_TO_PATH["health.context_pressure.warning_percent"])
+                ?? getDefaultValue("health.context_pressure.warning_percent", workspaceRoot);
+            const critical = getNestedValue(fileConfig, KEY_TO_PATH["health.context_pressure.critical_percent"])
+                ?? getDefaultValue("health.context_pressure.critical_percent", workspaceRoot);
+            if (warning >= critical) {
+                throw new Error(`Invalid context-pressure policy: warning (${warning}) must be less than critical (${critical})`);
+            }
+        }
+        mkdirSync(dirname(this.configPath), { recursive: true });
+        this.writeConfig(JSON.stringify(fileConfig, null, 2) + "\n");
+        this.verifyPersisted(KEY_TO_PATH[key], coerced);
+    }
+    /**
+     * Clear an override. Without a key argument, deletes the whole config
+     * file (revert all to defaults). With a key, removes just that key
+     * from the config file.
+     */
+    reset(key) {
+        if (key === undefined) {
+            try {
+                unlinkSync(this.configPath);
+            }
+            catch (error) {
+                if (error.code !== "ENOENT")
+                    throw error;
+            }
+            return;
+        }
+        const removedMessage = removedContextSettingMessage(key);
+        if (removedMessage)
+            throw new Error(removedMessage);
+        // OPR.0.4.4.15: dynamic-class reset removes the whole host node.
+        const feedHost = parseFeedHostSubscriptionKey(key);
+        if (feedHost) {
+            if (!existsSync(this.configPath))
+                return;
+            const fcDyn = this.readConfigFile();
+            const subsParent = getNestedValue(fcDyn, ["feed", "subscriptions"]);
+            if (subsParent && feedHost.hostId in subsParent)
+                delete subsParent[feedHost.hostId];
+            this.writeConfig(JSON.stringify(fcDyn, null, 2) + "\n");
+            return;
+        }
+        if (!isValidKey(key)) {
+            throw new Error(`Unknown config key "${key}". Valid keys: ${VALID_KEYS.join(", ")}`);
+        }
+        if (!existsSync(this.configPath))
+            return;
+        const fileConfig = this.readConfigFile();
+        const parts = KEY_TO_PATH[key];
+        const parentParts = parts.slice(0, -1);
+        const leaf = parts[parts.length - 1];
+        const parent = getNestedValue(fileConfig, parentParts);
+        if (parent && leaf in parent) {
+            delete parent[leaf];
+            if (key === "health.context_pressure.warning_percent" || key === "health.context_pressure.critical_percent") {
+                const workspaceRoot = getNestedValue(fileConfig, KEY_TO_PATH["workspace.root"])
+                    || readOpenRigEnv(ENV_MAP["workspace.root"].primary, ENV_MAP["workspace.root"].legacy)
+                    || DEFAULT_WORKSPACE_ROOT;
+                const warning = getNestedValue(fileConfig, KEY_TO_PATH["health.context_pressure.warning_percent"])
+                    ?? getDefaultValue("health.context_pressure.warning_percent", workspaceRoot);
+                const critical = getNestedValue(fileConfig, KEY_TO_PATH["health.context_pressure.critical_percent"])
+                    ?? getDefaultValue("health.context_pressure.critical_percent", workspaceRoot);
+                if (warning >= critical) {
+                    throw new Error(`Invalid context-pressure policy: warning (${warning}) must be less than critical (${critical})`);
+                }
+            }
+        }
+        this.writeConfig(JSON.stringify(fileConfig, null, 2) + "\n");
+    }
+    readConfigFile() {
+        let parsed = {};
+        if (existsSync(this.configPath)) {
+            const raw = readFileSync(this.configPath, "utf-8");
+            try {
+                parsed = JSON.parse(raw);
+            }
+            catch {
+                throw new Error(`Config file at ${this.configPath} is malformed. Fix the JSON or reset with: rig config reset`);
+            }
+        }
+        assertNoRemovedContextSetting(parsed);
+        return parsed;
+    }
+}
+export function parseNamedPairs(raw) {
+    if (!raw || !raw.trim())
+        return [];
+    const out = new Map();
+    for (const pair of raw.split(",")) {
+        const trimmed = pair.trim();
+        if (!trimmed)
+            continue;
+        const colon = trimmed.indexOf(":");
+        if (colon === -1)
+            continue;
+        const name = trimmed.slice(0, colon).trim();
+        const rawPath = trimmed.slice(colon + 1).trim();
+        if (!name || !rawPath)
+            continue;
+        out.set(name, rawPath);
+    }
+    return Array.from(out.entries()).map(([name, path]) => ({ name, path }));
+}
+//# sourceMappingURL=config-store.js.map

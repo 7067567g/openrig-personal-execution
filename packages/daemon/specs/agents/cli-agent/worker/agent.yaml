@@ -1,0 +1,12 @@
+name: cli-agent-worker
+version: "1.0.0"
+description: Minimal OpenCode/DSH worker seat used by the OpenCode+DSH starter rig.
+resources:
+  skills: []
+profiles:
+  default:
+    uses:
+      skills: []
+startup:
+  files: []
+  actions: []

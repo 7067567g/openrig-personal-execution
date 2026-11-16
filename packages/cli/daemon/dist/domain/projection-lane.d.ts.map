@@ -1,0 +1,1 @@
+{"version":3,"file":"projection-lane.d.ts","sourceRoot":"","sources":["../../src/domain/projection-lane.ts"],"names":[],"mappings":"AAYA,cAAM,cAAc;IAGlB,OAAO,CAAC,IAAI,CAAuC;IAEnD,GAAG,CAAC,CAAC,EAAE,GAAG,EAAE,MAAM,CAAC,GAAG,OAAO,CAAC,CAAC,CAAC;CAWjC;AAID,eAAO,MAAM,cAAc,gBAAuB,CAAC"}

@@ -1,0 +1,1 @@
+{"version":3,"file":"027_outbox_entries.js","sourceRoot":"","sources":["../../../src/db/migrations/027_outbox_entries.ts"],"names":[],"mappings":"AAEA;;;;;;;;GAQG;AACH,MAAM,CAAC,MAAM,mBAAmB,GAAc;IAC5C,IAAI,EAAE,wBAAwB;IAC9B,GAAG,EAAE;;;;;;;;;;;;;;;;GAgBJ;CACF,CAAC"}

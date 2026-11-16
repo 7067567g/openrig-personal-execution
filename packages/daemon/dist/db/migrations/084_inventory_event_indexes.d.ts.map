@@ -1,0 +1,1 @@
+{"version":3,"file":"084_inventory_event_indexes.d.ts","sourceRoot":"","sources":["../../../src/db/migrations/084_inventory_event_indexes.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,SAAS,EAAE,MAAM,eAAe,CAAC;AAE/C;oFACoF;AACpF,eAAO,MAAM,2BAA2B,EAAE,SAUzC,CAAC"}

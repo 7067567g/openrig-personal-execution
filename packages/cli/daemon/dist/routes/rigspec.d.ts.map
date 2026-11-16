@@ -1,0 +1,1 @@
+{"version":3,"file":"rigspec.d.ts","sourceRoot":"","sources":["../../src/routes/rigspec.ts"],"names":[],"mappings":"AACA,OAAO,EAAE,IAAI,EAAE,MAAM,MAAM,CAAC;AAC5B,OAAO,KAAK,EAAE,OAAO,EAAE,MAAM,MAAM,CAAC;AAgBpC,eAAO,MAAM,mBAAmB,4EAAa,CAAC;AAa9C,wBAAgB,gBAAgB,CAAC,CAAC,EAAE,OAAO,GAAG,QAAQ,CAqBrD;AAGD,wBAAgB,gBAAgB,CAAC,CAAC,EAAE,OAAO,GAAG,QAAQ,CAarD"}

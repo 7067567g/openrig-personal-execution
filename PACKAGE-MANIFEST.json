@@ -1,0 +1,84 @@
+{
+  "package": "openrig-personal-local",
+  "generatedAt": "2026-11-16T02:50:21Z",
+  "generatedBy": "stage_packages (workflow run openrig-personal-publish-20261116)",
+  "fileCount": 11658,
+  "bytes": 87443521,
+  "largest": [
+    {
+      "path": "packages/cli/ui/dist/assets/index-CjGBhfVP.js",
+      "bytes": 1970277
+    },
+    {
+      "path": "assets/readme/openrig-agents-working.gif",
+      "bytes": 1344634
+    },
+    {
+      "path": "CHANGELOG.md",
+      "bytes": 341139
+    },
+    {
+      "path": "package-lock.json",
+      "bytes": 252766
+    },
+    {
+      "path": "packages/daemon/test/restore-orchestrator.test.ts",
+      "bytes": 251214
+    },
+    {
+      "path": "packages/daemon/src/domain/queue-repository.ts",
+      "bytes": 219015
+    },
+    {
+      "path": "packages/cli/daemon/dist/domain/queue-repository.js",
+      "bytes": 202200
+    },
+    {
+      "path": "packages/daemon/dist/domain/queue-repository.js",
+      "bytes": 202200
+    },
+    {
+      "path": "packages/ui/twin/corrective/media-webm.ts",
+      "bytes": 189643
+    },
+    {
+      "path": "packages/daemon/test/session-transport.test.ts",
+      "bytes": 186344
+    }
+  ],
+  "sha256Manifest": "SHA256SUMS",
+  "sha256ManifestLines": 11658,
+  "exclusions": [
+    ".git/",
+    "node_modules/",
+    "var/",
+    "var.7z",
+    ".agents/",
+    ".claude/",
+    ".evidence/",
+    ".codegraph",
+    "rig.yaml",
+    "UPSTREAM-BASE",
+    "*.sqlite*",
+    "*.db",
+    ".env*",
+    "*.pem",
+    "*.key",
+    "*.p12",
+    "*.crt",
+    "*.log",
+    "*.tmp",
+    "*.tgz",
+    ".DS_Store",
+    "__pycache__/",
+    "demo/proof/"
+  ],
+  "knownGaps": [
+    "Snapshot of a dirty working tree, not a tagged release.",
+    "Test fixtures retain synthetic /home/... strings by design.",
+    "dist/ shipped prebuilt; runtime/install.sh rebuilds."
+  ],
+  "notes": [
+    "SHA256SUMS and PACKAGE-MANIFEST.json are not listed within themselves; every other file is covered."
+  ]
+}

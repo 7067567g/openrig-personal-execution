@@ -1,0 +1,17 @@
+/**
+ * Use the packaged build stamp, as /healthz does. The CLI ships daemon/dist
+ * without daemon/package.json. For unstamped development runs, read the
+ * daemon's own package.json version at call time. Function-level read
+ * on purpose: a module-level constant would mask test isolation per the
+ * audit-every-layer discipline, and the read is cheap. Returns "unknown" on any
+ * failure (missing/garbled package.json, no version field) so callers can
+ * render an honest fallback rather than crash.
+ *
+ * Lifted from routes/bundles.ts (where it was introduced in slice-05 for bundle
+ * provenance) to a shared helper for OPR.0.4.1.14, so the dashboard Field
+ * Environment VERSION row can read the real running daemon version through the
+ * health-summary route. The path is resolved relative to THIS module's own
+ * location (import.meta.url), so it is correct regardless of the caller.
+ */
+export declare function getDaemonVersion(): string;
+//# sourceMappingURL=daemon-version.d.ts.map

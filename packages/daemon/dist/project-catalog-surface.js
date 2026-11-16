@@ -1,0 +1,2 @@
+export { readProjectCatalog, selectCatalogProject, inferCatalogProject, rigFromSession, ProjectReadError } from "./domain/workspace/project-catalog.js";
+//# sourceMappingURL=project-catalog-surface.js.map

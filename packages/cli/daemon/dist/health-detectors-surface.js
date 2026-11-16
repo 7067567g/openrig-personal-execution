@@ -1,0 +1,2 @@
+export { HEALTH_LIST_SCHEMA, HealthProjectionService, LiveContextHealthSource, canonicalDetectorJson, evaluateHealthDetectors, healthScopeId, } from "./domain/health-detectors.js";
+//# sourceMappingURL=health-detectors-surface.js.map

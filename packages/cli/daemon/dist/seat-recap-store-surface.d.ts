@@ -1,0 +1,2 @@
+export { writeSeatRecap, listRecapChain, validateRecapContract, RECAP_FILENAME, RecapWriteError, type RecapChainEntry, type RecapContractFinding, } from "./domain/context-packs/seat-recap-store.js";
+//# sourceMappingURL=seat-recap-store-surface.d.ts.map

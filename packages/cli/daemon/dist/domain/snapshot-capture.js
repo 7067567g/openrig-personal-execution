@@ -1,0 +1,145 @@
+import { deriveActiveOccupantsByNode, deriveActiveSessionIdByNode, deriveRehydrateOccupantsByNode, deriveRehydrateSessionIdByNode, } from "./active-occupant.js";
+import { RigNotFoundError } from "./errors.js";
+import { readFreshOccupantRelations } from "./fresh-occupant-relation.js";
+export class SnapshotCapture {
+    db;
+    rigRepo;
+    sessionRegistry;
+    eventBus;
+    snapshotRepo;
+    checkpointStore;
+    constructor(deps) {
+        if (deps.db !== deps.rigRepo.db) {
+            throw new Error("SnapshotCapture: rigRepo must share the same db handle");
+        }
+        if (deps.db !== deps.sessionRegistry.db) {
+            throw new Error("SnapshotCapture: sessionRegistry must share the same db handle");
+        }
+        if (deps.db !== deps.eventBus.db) {
+            throw new Error("SnapshotCapture: eventBus must share the same db handle");
+        }
+        if (deps.db !== deps.snapshotRepo.db) {
+            throw new Error("SnapshotCapture: snapshotRepo must share the same db handle");
+        }
+        if (deps.db !== deps.checkpointStore.db) {
+            throw new Error("SnapshotCapture: checkpointStore must share the same db handle");
+        }
+        this.db = deps.db;
+        this.rigRepo = deps.rigRepo;
+        this.sessionRegistry = deps.sessionRegistry;
+        this.eventBus = deps.eventBus;
+        this.snapshotRepo = deps.snapshotRepo;
+        this.checkpointStore = deps.checkpointStore;
+    }
+    captureSnapshot(rigId, kind, opts) {
+        // 1. Get rig with nodes, edges, bindings
+        const rig = this.rigRepo.getRig(rigId);
+        if (!rig) {
+            throw new RigNotFoundError(rigId);
+        }
+        // 2. Get sessions with resume metadata
+        const sessions = this.sessionRegistry.getSessionsForRig(rigId);
+        // 2b. OPR.0.5.7.1 D1 — capture the ACTIVE-OCCUPANT relation explicitly,
+        // through the ONE shared derivation (active-occupant.ts) that the live
+        // no-snapshot preview also uses, so the sibling paths cannot drift.
+        const recorded = kind === "auto-rehydrate" ? readFreshOccupantRelations(this.db, rigId) : {};
+        const activeSessionIdByNode = kind === "auto-rehydrate"
+            ? deriveRehydrateSessionIdByNode(sessions, rig.nodes.map((n) => n.id), recorded)
+            : deriveActiveSessionIdByNode(sessions, rig.nodes.map((n) => n.id));
+        const activeOccupantsByNode = kind === "auto-rehydrate"
+            ? deriveRehydrateOccupantsByNode(sessions, rig.nodes.map((n) => n.id), recorded)
+            : deriveActiveOccupantsByNode(sessions, rig.nodes.map((n) => n.id));
+        const requestedRoster = opts?.intendedNodeIds;
+        const materializedRoster = requestedRoster ? null : this.materializedRoster(rigId);
+        const intendedNodeIds = requestedRoster ?? materializedRoster ?? rig.nodes.map((node) => node.id);
+        const allNodeIds = new Set(rig.nodes.map((node) => node.id));
+        if (new Set(intendedNodeIds).size !== intendedNodeIds.length
+            || intendedNodeIds.some((nodeId) => !allNodeIds.has(nodeId))) {
+            throw new Error("Snapshot intended roster must contain unique node ids belonging to the target rig");
+        }
+        // 3. Get checkpoints as map (latest per node)
+        const checkpoints = this.checkpointStore.getCheckpointsForRig(rigId);
+        // 4. Get pods + continuity state + startup context
+        const podRows = this.db.prepare("SELECT * FROM pods WHERE rig_id = ?")
+            .all(rigId);
+        const podIds = podRows.map((p) => p.id);
+        const continuityRows = podIds.length > 0
+            ? this.db.prepare(`SELECT * FROM continuity_state WHERE pod_id IN (${podIds.map(() => "?").join(",")})`)
+                .all(...podIds)
+            : [];
+        const nodeStartupContext = {};
+        for (const node of rig.nodes) {
+            const ctx = this.db.prepare("SELECT * FROM node_startup_context WHERE node_id = ?")
+                .get(node.id);
+            nodeStartupContext[node.id] = ctx ? {
+                projectionEntries: JSON.parse(ctx.projection_entries_json),
+                resolvedStartupFiles: JSON.parse(ctx.resolved_files_json),
+                startupActions: JSON.parse(ctx.startup_actions_json),
+                runtime: ctx.runtime,
+            } : null;
+        }
+        // 4b. Get env receipt from services record if services exist
+        const servicesRecord = this.rigRepo.getServicesRecord(rigId);
+        let envReceipt = null;
+        if (servicesRecord?.latestReceiptJson) {
+            try {
+                envReceipt = JSON.parse(servicesRecord.latestReceiptJson);
+            }
+            catch { /* receipt_only — no checkpoint available */ }
+        }
+        // 5. Assemble SnapshotData
+        const data = {
+            rig: rig.rig,
+            nodes: rig.nodes,
+            edges: rig.edges,
+            sessions,
+            activeSessionIdByNode,
+            activeOccupantsByNode,
+            topologyRoster: {
+                version: 1,
+                source: requestedRoster
+                    ? "operator_explicit"
+                    : materializedRoster
+                        ? "materialized_topology"
+                        : "legacy_current_nodes",
+                intendedNodeIds,
+            },
+            checkpoints,
+            pods: podRows.map((p) => ({ id: p.id, rigId: p.rig_id, namespace: p.namespace, label: p.label, summary: p.summary, continuityPolicyJson: p.continuity_policy_json, createdAt: p.created_at })),
+            continuityStates: continuityRows.map((r) => ({ podId: r.pod_id, nodeId: r.node_id, status: r.status, artifactsJson: r.artifacts_json, lastSyncAt: r.last_sync_at, updatedAt: r.updated_at })),
+            nodeStartupContext,
+            envReceipt,
+        };
+        // 5. Atomic: persist snapshot + event in one transaction
+        const txn = this.db.transaction(() => {
+            const snapshot = this.snapshotRepo.createSnapshot(rigId, kind, data);
+            const persistedEvent = this.eventBus.persistWithinTransaction({
+                type: "snapshot.created",
+                rigId,
+                snapshotId: snapshot.id,
+                kind,
+            });
+            return { snapshot, persistedEvent };
+        });
+        const { snapshot, persistedEvent } = txn();
+        // 6. Notify subscribers after commit (best-effort)
+        this.eventBus.notifySubscribers(persistedEvent);
+        return snapshot;
+    }
+    materializedRoster(rigId) {
+        const row = this.db.prepare("SELECT payload FROM events WHERE rig_id = ? AND type = 'topology.roster_recorded' ORDER BY seq DESC LIMIT 1").get(rigId);
+        if (!row)
+            return null;
+        try {
+            const parsed = JSON.parse(row.payload);
+            if (!Array.isArray(parsed.intendedNodeIds) || !parsed.intendedNodeIds.every((id) => typeof id === "string")) {
+                throw new Error("latest topology roster event has no string intendedNodeIds array");
+            }
+            return parsed.intendedNodeIds;
+        }
+        catch (error) {
+            throw new Error(`Cannot capture snapshot from malformed authoritative topology roster: ${error.message}`);
+        }
+    }
+}
+//# sourceMappingURL=snapshot-capture.js.map

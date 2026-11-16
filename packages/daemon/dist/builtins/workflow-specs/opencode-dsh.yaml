@@ -1,0 +1,64 @@
+# Minimal OpenCode + DSH specialization workflow.
+# Plan by PMO, two independent execution branches (one OpenCode, one DSH),
+# QA joins both, then the main seat closes the round.
+workflow:
+  id: opencode-dsh
+  version: 1
+  objective: >
+    Move one bounded work packet through PMO planning, two independent
+    OpenCode/DSH execution branches, QA join, and a main closeout.
+  target:
+    rig: opencode-dsh
+  entry:
+    role: pmo
+  exception_routing:
+    orchestrator_role: main
+  coordination_terminal_turn_rule: hot_potato
+  roles:
+    pmo:
+      preferred_targets: [control-pmo@opencode-dsh]
+    tdo_opencode:
+      preferred_targets: [exec-tdo-oc@opencode-dsh]
+    tdo_dsh:
+      preferred_targets: [exec-tdo-dsh@opencode-dsh]
+    qa:
+      preferred_targets: [assurance-qa@opencode-dsh]
+    main:
+      preferred_targets: [control-main@opencode-dsh]
+  steps:
+    - id: plan
+      actor_role: pmo
+      objective: Split the round into two bounded execution packets with evidence requirements.
+      allowed_exits: [handoff, waiting, failed]
+    - id: implement_opencode
+      actor_role: tdo_opencode
+      depends_on: [plan]
+      objective: Execute the OpenCode branch and record proof.
+      allowed_exits: [handoff, waiting, failed]
+    - id: implement_dsh
+      actor_role: tdo_dsh
+      depends_on: [plan]
+      objective: Execute the DSH branch and record proof.
+      allowed_exits: [handoff, waiting, failed]
+    - id: qa
+      actor_role: qa
+      depends_on: [implement_opencode, implement_dsh]
+      objective: Join both branches, compare evidence, and report S1/S2 issues.
+      allowed_exits: [handoff, waiting, failed]
+    - id: close_round
+      actor_role: main
+      depends_on: [qa]
+      objective: Review the QA report and close the round in DECISIONS.
+      allowed_exits: [done, failed]
+  invariants:
+    continuation_required: true
+    preserve_lineage: true
+    closure_required: true
+    allowed_exits: [handoff, waiting, done, failed]
+  loop_guards:
+    max_hops: 10
+    spawn_budget: 0
+  closure:
+    success: Round closed with both runtime branches and QA proof.
+    degraded: Round stopped with a named blocker.
+    failed: Round failed with evidence.

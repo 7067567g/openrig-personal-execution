@@ -1,0 +1,1 @@
+{"version":3,"file":"omp-runtime-adapter.d.ts","sourceRoot":"","sources":["../../src/adapters/omp-runtime-adapter.ts"],"names":[],"mappings":"AACA,OAAO,EAAE,gBAAgB,EAAE,MAAM,yBAAyB,CAAC;AAG3D;0EAC0E;AAC1E,qBAAa,iBAAkB,SAAQ,gBAAgB;IACrD,SAAkB,OAAO,EAAG,KAAK,CAAU;IAE3C;uFACmF;IACnF,eAAe,CAAC,WAAW,EAAE,MAAM,GAAG,IAAI,EAAE,WAAW,EAAE,MAAM,GAAG,MAAM,GAAG,IAAI;CAIhF"}

@@ -1,0 +1,1 @@
+{"version":3,"file":"agent-preflight.d.ts","sourceRoot":"","sources":["../../src/domain/agent-preflight.ts"],"names":[],"mappings":"AAAA,OAAO,EAAmB,KAAK,kBAAkB,EAAE,MAAM,qBAAqB,CAAC;AAC/E,OAAO,KAAK,EAAE,eAAe,EAAE,MAAM,YAAY,CAAC;AAElD;;;;;;;GAOG;AACH,wBAAgB,cAAc,CAC5B,QAAQ,EAAE,MAAM,EAChB,OAAO,EAAE,MAAM,EACf,KAAK,EAAE,kBAAkB,GACxB,eAAe,CA2BjB"}

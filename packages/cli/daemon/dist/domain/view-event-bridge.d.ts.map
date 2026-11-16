@@ -1,0 +1,1 @@
+{"version":3,"file":"view-event-bridge.d.ts","sourceRoot":"","sources":["../../src/domain/view-event-bridge.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,QAAQ,EAAE,MAAM,gBAAgB,CAAC;AAC/C,OAAO,KAAK,EAAE,aAAa,EAAE,MAAM,qBAAqB,CAAC;AAiEzD,MAAM,WAAW,mBAAmB;IAClC,IAAI,IAAI,CAAC;CACV;AAED;;;;GAIG;AACH,wBAAgB,mBAAmB,CACjC,QAAQ,EAAE,QAAQ,EAClB,aAAa,EAAE,aAAa,GAC3B,mBAAmB,CA2BrB"}

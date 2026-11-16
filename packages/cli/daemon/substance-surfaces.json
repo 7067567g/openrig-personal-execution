@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "roots": [
+    "daemon/assets",
+    "daemon/context-packs",
+    "daemon/specs"
+  ]
+}

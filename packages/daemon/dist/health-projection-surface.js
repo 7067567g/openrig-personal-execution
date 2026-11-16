@@ -1,0 +1,2 @@
+export { HEALTH_CATEGORIES, HEALTH_CONFIDENCE, HEALTH_RECORD_SCHEMA, HEALTH_SEVERITIES, HEALTH_STATUSES, adaptContextUsageEvidence, adaptLifecycleReceiptEvidence, adaptOccupantModelEvidence, adaptQueueTransitionEvidence, adaptTopologyActivityEvidence, adaptWatchdogHistoryEvidence, adaptWorkGraphEvidence, boundHealthEvidence, canonicalHealthJson, deriveHealthSourceFreshness, healthEpisodeId, projectHealthRecord, } from "./domain/health-projection.js";
+//# sourceMappingURL=health-projection-surface.js.map

@@ -1,0 +1,379 @@
+import { Command } from "commander";
+import { DaemonClient, DaemonConnectionError, DaemonTimeoutError } from "../client.js";
+import { readOpenRigEnv } from "../openrig-compat.js";
+import { getDaemonStatus, getDaemonUrl, daemonStatusGuard } from "../daemon-lifecycle.js";
+import { realDeps } from "./daemon.js";
+import { execSync } from "node:child_process";
+async function resolveRigId(client, rigName) {
+    const res = await client.get("/api/rigs/summary");
+    const matches = res.data.filter((r) => r.name === rigName);
+    if (matches.length === 0) {
+        throw new Error(`Rig '${rigName}' not found. List rigs with: rig ps`);
+    }
+    if (matches.length > 1) {
+        throw new Error(`Rig '${rigName}' is ambiguous — ${matches.length} rigs share that name. Use a unique name or remove duplicates.`);
+    }
+    return matches[0].id;
+}
+// A poll that failed this way says nothing about the room: the daemon was slow to answer, refused the
+// connection, or dropped it while restarting. `chatroom wait` retries it on its usual cadence until its own
+// deadline. An HTTP error status or any other failure is real and ends the wait at once.
+const TRANSIENT_CONNECTION_CODES = new Set(["ECONNREFUSED", "ECONNRESET", "UND_ERR_SOCKET"]);
+function isTransientPollError(err) {
+    if (err instanceof DaemonTimeoutError)
+        return true;
+    return err instanceof DaemonConnectionError && err.causeCode !== undefined && TRANSIENT_CONNECTION_CODES.has(err.causeCode);
+}
+export function chatroomCommand(depsOverride) {
+    const cmd = new Command("chatroom").description("Chat room for rig communication");
+    const getDeps = () => depsOverride ?? {
+        lifecycleDeps: realDeps(),
+        clientFactory: (url) => new DaemonClient(url),
+    };
+    async function getClient() {
+        const deps = getDeps();
+        const status = await getDaemonStatus(deps.lifecycleDeps);
+        if (!daemonStatusGuard(status))
+            return null;
+        return deps.clientFactory(getDaemonUrl(status));
+    }
+    // chatroom send <rig> "message" [--sender <name>]
+    cmd
+        .command("send")
+        .argument("<rig>", "Rig name")
+        .argument("<message>", "Message to send")
+        .option("--sender <name>", "(deprecated, ignored) the sender is derived from the seat env (X-OpenRig-Session); P21 made the chat route derive it from the transport header")
+        .action(async (rig, message, _opts) => {
+        const client = await getClient();
+        if (!client)
+            return;
+        let rigId;
+        try {
+            rigId = await resolveRigId(client, rig);
+        }
+        catch (err) {
+            console.error(err.message);
+            process.exitCode = 1;
+            return;
+        }
+        // P21: no body sender — the daemon derives it from the transport header (X-OpenRig-Session,
+        // stamped by DaemonClient from the seat env). A hardcoded 'cli' differing from the header would be
+        // SUPERSEDED by it (transport:v1), not persisted (P18: the 409 mismatch is retired).
+        const res = await client.post(`/api/rigs/${encodeURIComponent(rigId)}/chat/send`, { body: message });
+        if (res.status >= 400) {
+            console.error(res.data["error"] ?? `Failed (HTTP ${res.status})`);
+            process.exitCode = 1;
+            return;
+        }
+        // P21: echo the DERIVED seat identity (the env the daemon stamps as X-OpenRig-Session), not the
+        // deprecated --sender flag — so the local confirmation matches what the chat route actually records.
+        console.log(`[${readOpenRigEnv("OPENRIG_SESSION_NAME", "RIGGED_SESSION_NAME") ?? "you"}] ${message}`);
+    });
+    // chatroom history <rig> [--topic <name>] [--limit N] [--json]
+    cmd
+        .command("history")
+        .argument("<rig>", "Rig name")
+        .option("--topic <name>", "Filter by topic")
+        .option("--after <id>", "Messages after this message ID")
+        .option("--since <timestamp>", "Messages since this timestamp")
+        .option("--sender <name>", "Messages from this sender")
+        .option("--limit <n>", "Limit results", "50")
+        .option("--json", "JSON output")
+        .action(async (rig, opts) => {
+        const client = await getClient();
+        if (!client)
+            return;
+        let rigId;
+        try {
+            rigId = await resolveRigId(client, rig);
+        }
+        catch (err) {
+            console.error(err.message);
+            process.exitCode = 1;
+            return;
+        }
+        const params = new URLSearchParams();
+        if (opts.topic)
+            params.set("topic", opts.topic);
+        if (opts.after)
+            params.set("after", opts.after);
+        if (opts.since)
+            params.set("since", opts.since);
+        if (opts.sender)
+            params.set("sender", opts.sender);
+        if (opts.limit)
+            params.set("limit", opts.limit);
+        const qs = params.toString();
+        const res = await client.get(`/api/rigs/${encodeURIComponent(rigId)}/chat/history${qs ? `?${qs}` : ""}`);
+        if (opts.json) {
+            console.log(JSON.stringify(res.data));
+            if (res.status >= 400)
+                process.exitCode = 1;
+            return;
+        }
+        if (res.status >= 400) {
+            console.error(res.data?.error ?? `Failed (HTTP ${res.status})`);
+            process.exitCode = 1;
+            return;
+        }
+        const messages = res.data;
+        if (!Array.isArray(messages) || messages.length === 0) {
+            console.log("No messages.");
+            return;
+        }
+        for (const msg of messages) {
+            const kind = msg["kind"];
+            if (kind === "topic") {
+                console.log(`--- topic: ${msg["topic"]} ---`);
+            }
+            else {
+                console.log(`[${msg["sender"]}] ${msg["body"]}`);
+            }
+        }
+    });
+    // chatroom watch <rig> [--tmux]
+    cmd
+        .command("watch")
+        .argument("<rig>", "Rig name")
+        .option("--tmux", "Run watch in a dedicated tmux session")
+        .action(async (rig, opts) => {
+        const client = await getClient();
+        if (!client)
+            return;
+        let rigId;
+        try {
+            rigId = await resolveRigId(client, rig);
+        }
+        catch (err) {
+            console.error(err.message);
+            process.exitCode = 1;
+            return;
+        }
+        if (opts.tmux) {
+            const sessionName = `chatroom@${rig}`;
+            try {
+                execSync(`tmux new-session -d -s ${JSON.stringify(sessionName)} "rig chatroom watch ${JSON.stringify(rig)}"`, { stdio: "ignore" });
+                console.log(`Started watch in tmux session: ${sessionName}`);
+                console.log(`Attach with: tmux attach -t ${sessionName}`);
+            }
+            catch {
+                console.error(`Failed to create tmux session '${sessionName}'. It may already exist.`);
+                process.exitCode = 1;
+            }
+            return;
+        }
+        // Direct SSE watch
+        const url = `${client.baseUrl}/api/rigs/${encodeURIComponent(rigId)}/chat/watch`;
+        try {
+            const res = await fetch(url, {
+                headers: { Accept: "text/event-stream" },
+            });
+            if (!res.ok || !res.body) {
+                console.error(`Watch failed (HTTP ${res.status})`);
+                process.exitCode = 1;
+                return;
+            }
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = "";
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done)
+                    break;
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split("\n");
+                buffer = lines.pop() ?? "";
+                for (const line of lines) {
+                    if (line.startsWith("data:")) {
+                        const data = line.slice(5).trim();
+                        try {
+                            const msg = JSON.parse(data);
+                            if (msg.kind === "topic") {
+                                console.log(`--- topic: ${msg.topic} ---`);
+                            }
+                            else {
+                                console.log(`[${msg.sender}] ${msg.body}`);
+                            }
+                        }
+                        catch {
+                            // Skip malformed data lines
+                        }
+                    }
+                }
+            }
+        }
+        catch (err) {
+            if (err.name !== "AbortError") {
+                console.error(`Watch error: ${err.message}`);
+                process.exitCode = 1;
+            }
+        }
+    });
+    // chatroom topic <rig> <topic-name> [--body "text"]
+    cmd
+        .command("topic")
+        .argument("<rig>", "Rig name")
+        .argument("<topic-name>", "Topic name")
+        .option("--body <text>", "Optional body text")
+        .option("--sender <name>", "(deprecated, ignored) the sender is derived from the seat env (X-OpenRig-Session); the chat topic route derives it from the transport header")
+        .action(async (rig, topicName, opts) => {
+        const client = await getClient();
+        if (!client)
+            return;
+        let rigId;
+        try {
+            rigId = await resolveRigId(client, rig);
+        }
+        catch (err) {
+            console.error(err.message);
+            process.exitCode = 1;
+            return;
+        }
+        // P21: no body sender — the daemon derives it from the transport header (see chat/send).
+        const res = await client.post(`/api/rigs/${encodeURIComponent(rigId)}/chat/topic`, { topic: topicName, body: opts.body });
+        if (res.status >= 400) {
+            console.error(res.data["error"] ?? `Failed (HTTP ${res.status})`);
+            process.exitCode = 1;
+            return;
+        }
+        console.log(`--- topic: ${topicName} ---`);
+    });
+    // chatroom wait <rig>
+    cmd
+        .command("wait")
+        .argument("<rig>", "Rig name")
+        .option("--after <id>", "Only messages after this ID")
+        .option("--topic <name>", "Filter by topic")
+        .option("--sender <name>", "Filter by sender")
+        .option("--timeout <seconds>", "Timeout in seconds", "120")
+        .option("--json", "JSON output")
+        .action(async (rig, opts) => {
+        // A NaN timeout would never expire and would poll with a ~1ms sleep.
+        // Preserve numeric forms and legacy numeric prefixes (e.g. 30s) without truncating fractions.
+        const numericTimeout = Number(opts.timeout);
+        const timeoutSeconds = Number.isNaN(numericTimeout) ? Number.parseFloat(opts.timeout) : numericTimeout;
+        if (opts.timeout.trim() === "" || !Number.isFinite(timeoutSeconds) || timeoutSeconds < 0) {
+            console.error(`--timeout must be a non-negative number of seconds; got '${opts.timeout}'`);
+            process.exitCode = 1;
+            return;
+        }
+        const client = await getClient();
+        if (!client)
+            return;
+        let rigId;
+        try {
+            rigId = await resolveRigId(client, rig);
+        }
+        catch (err) {
+            console.error(err.message);
+            process.exitCode = 1;
+            return;
+        }
+        const timeoutMs = timeoutSeconds * 1000;
+        const pollIntervalMs = 3000;
+        // Bootstrap cursor: use --after if provided, otherwise generate a ULID at start time
+        // as a practical time-based baseline. Messages with IDs after this point are considered new.
+        let cursor = opts.after ?? "";
+        if (!cursor) {
+            const { monotonicFactory } = await import("ulid");
+            cursor = monotonicFactory()();
+        }
+        // Build filter params
+        const filterParams = new URLSearchParams();
+        if (opts.topic)
+            filterParams.set("topic", opts.topic);
+        if (opts.sender)
+            filterParams.set("sender", opts.sender);
+        const start = Date.now();
+        // The message of the last poll, when it failed transiently; null once a poll succeeds.
+        let lastPollError = null;
+        while (true) {
+            // Check timeout BEFORE polling
+            if (Date.now() - start >= timeoutMs)
+                break;
+            const params = new URLSearchParams(filterParams);
+            if (cursor)
+                params.set("after", cursor);
+            const controller = new AbortController();
+            const remainingForRequest = timeoutMs - (Date.now() - start);
+            if (remainingForRequest <= 0)
+                break;
+            // Keep the command's deadline through headers and body consumption.
+            // The client's own request timeout still bounds an unresponsive daemon.
+            const timer = setTimeout(() => controller.abort(), Math.min(remainingForRequest, 2_147_483_647));
+            let res = null;
+            try {
+                res = await client.get(`/api/rigs/${encodeURIComponent(rigId)}/chat/history?${params}`, { signal: controller.signal });
+                lastPollError = null;
+            }
+            catch (err) {
+                if (controller.signal.aborted)
+                    break;
+                if (!isTransientPollError(err))
+                    throw err;
+                // Announce the first failure of a run, then keep polling quietly.
+                if (lastPollError === null)
+                    console.error(`A poll failed (${err.message}); retrying until the --timeout deadline.`);
+                lastPollError = err.message;
+            }
+            finally {
+                clearTimeout(timer);
+            }
+            if (controller.signal.aborted || Date.now() - start >= timeoutMs)
+                break;
+            if (res && res.status >= 400) {
+                console.error(res.data?.error ?? `Failed (HTTP ${res.status})`);
+                process.exitCode = 1;
+                return;
+            }
+            if (res?.data && res.data.length > 0) {
+                if (opts.json) {
+                    console.log(JSON.stringify(res.data));
+                }
+                else {
+                    for (const msg of res.data) {
+                        console.log(`[${msg["sender"]}] ${msg["body"]}`);
+                    }
+                }
+                return;
+            }
+            // Sleep with remaining timeout awareness
+            const remaining = timeoutMs - (Date.now() - start);
+            if (remaining <= 0)
+                break;
+            await new Promise((resolve) => setTimeout(resolve, Math.min(pollIntervalMs, remaining)));
+        }
+        console.error(`Timed out after ${opts.timeout} seconds — no new messages matching filters.`);
+        if (lastPollError !== null) {
+            console.error(`The last poll failed (${lastPollError}), so new messages may have arrived without being seen.`);
+        }
+        process.exitCode = 1;
+    });
+    // chatroom clear <rig>
+    cmd
+        .command("clear")
+        .argument("<rig>", "Rig name")
+        .action(async (rig) => {
+        const client = await getClient();
+        if (!client)
+            return;
+        let rigId;
+        try {
+            rigId = await resolveRigId(client, rig);
+        }
+        catch (err) {
+            console.error(err.message);
+            process.exitCode = 1;
+            return;
+        }
+        const res = await client.post(`/api/rigs/${encodeURIComponent(rigId)}/chat/clear`, {});
+        if (res.status >= 400) {
+            console.error(`Clear failed (HTTP ${res.status})`);
+            process.exitCode = 1;
+            return;
+        }
+        console.log(`Cleared ${res.data.deleted} messages from ${rig} chatroom.`);
+    });
+    return cmd;
+}
+//# sourceMappingURL=chatroom.js.map

@@ -1,0 +1,1 @@
+{"version":3,"file":"json-body-error.d.ts","sourceRoot":"","sources":["../../src/middleware/json-body-error.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,YAAY,EAAE,iBAAiB,EAAE,MAAM,MAAM,CAAC;AAU5D;;;;;GAKG;AACH,eAAO,MAAM,wBAAwB,EAAE,iBAiBtC,CAAC;AAEF;;;;;;;GAOG;AACH,eAAO,MAAM,oBAAoB,EAAE,YAalC,CAAC"}

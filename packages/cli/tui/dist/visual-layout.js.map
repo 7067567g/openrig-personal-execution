@@ -1,0 +1,1 @@
+{"version":3,"file":"visual-layout.js","sourceRoot":"","sources":["../src/visual-layout.ts"],"names":[],"mappings":"AAAA;oEACoE;AACpE,MAAM,UAAU,aAAa,CAAC,IAAY;IACxC,OAAO,IAAI,CAAC,GAAG,CAAC,EAAE,EAAE,IAAI,CAAC,GAAG,CAAC,EAAE,EAAE,IAAI,CAAC,KAAK,CAAC,IAAI,GAAG,IAAI,CAAC,CAAC,CAAC,CAAC;AAC7D,CAAC;AAED,qEAAqE;AACrE,MAAM,CAAC,MAAM,eAAe,GAAG,GAAG,CAAC"}

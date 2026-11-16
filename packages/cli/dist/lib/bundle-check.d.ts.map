@@ -1,0 +1,1 @@
+{"version":3,"file":"bundle-check.d.ts","sourceRoot":"","sources":["../../src/lib/bundle-check.ts"],"names":[],"mappings":"AAMA,UAAU,KAAK;IACb,MAAM,EAAE,MAAM,CAAC;IACf,MAAM,EAAE,MAAM,GAAG,SAAS,GAAG,aAAa,CAAC;IAC3C,MAAM,EAAE,MAAM,CAAC;IACf,IAAI,CAAC,EAAE,MAAM,CAAC;CACf;AAED,yFAAyF;AACzF,wBAAsB,iBAAiB,CAAC,MAAM,EAAE,MAAM;;;GA0HrD"}

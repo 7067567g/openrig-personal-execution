@@ -1,0 +1,41 @@
+# OpenRig Personal Local — environment example.
+#
+# Copy the lines you need into your shell profile or a local .env file.
+# Values below are EXAMPLES only. This file intentionally contains no real keys.
+# Never commit a filled-in copy: .env files are git-ignored.
+
+# --- Runtime layout -------------------------------------------------------
+# Root of the OpenRig runtime state (sessions, queue DB, logs, archives).
+OPENRIG_HOME=$HOME/.openrig
+# Repository root override for runtime/rig-shim.sh.
+# OPENRIG_ROOT=/path/to/openrig-personal-local
+
+# --- Daemon / network -----------------------------------------------------
+OPENRIG_HOST=127.0.0.1
+OPENRIG_PORT=7676
+# OPENRIG_BIND_HOST=127.0.0.1
+# OPENRIG_URL=http://127.0.0.1:7676
+# OPENRIG_LOG_LEVEL=info
+
+# --- Agent runtimes -------------------------------------------------------
+# OPENRIG_OPENCODE_BIN=opencode
+# OPENRIG_OPENCODE_AGENT=build
+# OPENRIG_OPENCODE_MODEL=provider/model-id
+# OPENRIG_DSH_BIN=dsh
+# OPENRIG_DSH_PROFILE=default
+# OPENRIG_TMUX_CONTROL=1
+# OPENRIG_TMUX_SHELL=/bin/bash
+
+# --- Work roots -----------------------------------------------------------
+# OPENRIG_WORK_ROOT=$HOME/work
+# OPENRIG_TARGET_REPO=$HOME/work/my-project
+
+# --- Transcripts ----------------------------------------------------------
+# OPENRIG_TRANSCRIPTS_ENABLED=1
+# OPENRIG_TRANSCRIPTS_PATH=$HOME/.openrig/transcripts
+
+# --- Startup behaviour ----------------------------------------------------
+# OPENRIG_NO_KERNEL=1
+
+# Provider API keys are NOT configured here. Each agent CLI manages its own
+# credentials (its own login, keyring or auth file). OpenRig reads no keys.

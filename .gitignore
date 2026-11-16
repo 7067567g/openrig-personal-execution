@@ -1,0 +1,19 @@
+# Packaging .gitignore for OpenRig Personal Local.
+# IMPORTANT: dist/ and docs/ are SHIPPED artifacts in this repository and must
+# never be ignored here (the upstream development .gitignore ignores them).
+
+node_modules/
+var/
+var.7z
+.env
+.env.*
+*.log
+*.sqlite
+*.sqlite-*
+*.db
+*.tmp
+*.tgz
+.DS_Store
+.openrig/
+.worktrees/
+__pycache__/
