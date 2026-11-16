@@ -1,0 +1,20 @@
+{
+  "stack": "openrig-personal",
+  "displayName": "OpenRig Personal Stack",
+  "package": "execution",
+  "version": "0.1.4",
+  "siblings": {
+    "control": {
+      "repo": "https://github.com/7067567g/openrig-personal-control",
+      "version": "1.0.0"
+    },
+    "evidence": {
+      "repo": "https://github.com/7067567g/openrig-personal-evidence",
+      "version": "2026.11.16"
+    }
+  },
+  "installOrder": [
+    "execution",
+    "control"
+  ]
+}

@@ -1,6 +1,6 @@
-# OpenRig Personal Local
+# OpenRig Personal Execution
 
-**Release tag:** `v2026.11.16`
+**Release tag:** `v0.1.4`
 **Release date:** 2026-11-16
 **Package version:** `openrig-local 0.1.4`
 

@@ -1,9 +1,9 @@
 {
-  "package": "openrig-personal-local",
-  "generatedAt": "2026-11-16T02:50:21Z",
-  "generatedBy": "stage_packages (workflow run openrig-personal-publish-20261116)",
-  "fileCount": 11658,
-  "bytes": 87443521,
+  "package": "openrig-personal-execution",
+  "generatedAt": "2026-11-16T03:10:36Z",
+  "generatedBy": "OpenRig Personal Stack rename/alignment 2026-11-16",
+  "fileCount": 11660,
+  "bytes": 87446981,
   "largest": [
     {
       "path": "packages/cli/ui/dist/assets/index-CjGBhfVP.js",
@@ -47,7 +47,7 @@
     }
   ],
   "sha256Manifest": "SHA256SUMS",
-  "sha256ManifestLines": 11658,
+  "sha256ManifestLines": 11660,
   "exclusions": [
     ".git/",
     "node_modules/",
@@ -80,5 +80,6 @@
   ],
   "notes": [
     "SHA256SUMS and PACKAGE-MANIFEST.json are not listed within themselves; every other file is covered."
-  ]
+  ],
+  "version": "0.1.4"
 }

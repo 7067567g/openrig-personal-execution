@@ -1,9 +1,12 @@
-# OpenRig Personal Local
+# OpenRig Personal Execution
 
-**OpenRig Personal Local** is a personal local source line of OpenRig: a control
-plane that runs persistent teams of coding agents (Claude Code, Codex, OpenCode,
-Pi and friends) as named seats in separate terminal sessions, coordinated through
-a durable queue, a workflow runtime, and a shared transcript/observation layer.
+> Part of the **OpenRig Personal Stack** — execution plane.
+
+
+**OpenRig Personal Execution** is the execution plane of OpenRig: the daemon, CLI and TUI
+that run persistent teams of coding agents (Claude Code, Codex, OpenCode, Pi and
+friends) as named seats in separate terminal sessions, coordinated through a durable
+queue, a workflow runtime, and a shared transcript/observation layer.
 
 This repository is a *source snapshot*, not an npm release. It contains the
 daemon, CLI and TUI sources, the built `dist/` bundles, the test suites, the
@@ -65,7 +68,7 @@ the `OPENRIG_*` environment variables.
   only. Never commit real keys; keep them in your shell environment or a local,
   git-ignored file.
 - Provider credentials are read from the environment by the agent CLIs
-  themselves. OpenRig Personal Local does not ship or proxy any credentials.
+  themselves. OpenRig Personal Execution does not ship or proxy any credentials.
 
 ## License
 
