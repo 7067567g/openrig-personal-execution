@@ -676,11 +676,46 @@ describe("Rig CRUD routes", () => {
     const body = await res.json();
     expect(body.status).toBe("restored");
     expect(body.snapshotKind).toBe("auto-rehydrate");
+    expect(typeof body.snapshotId).toBe("string");
+    expect(typeof body.preRestoreSnapshotId).toBe("string");
     expect(body.warnings).toContain("No restore-usable snapshot existed; captured current DB state as auto-rehydrate snapshot for reboot recovery.");
     const autoRehydrate = db
       .prepare("SELECT kind FROM snapshots WHERE rig_id = ? AND kind = 'auto-rehydrate'")
       .get(rig.id) as { kind: string } | undefined;
     expect(autoRehydrate?.kind).toBe("auto-rehydrate");
+  });
+
+  it("POST /api/rigs/:id/up does not persist auto-rehydrate when structural pre-validation blocks", async () => {
+    const rig = repo.createRig("rehydrate-preflight-blocked");
+    const node = repo.addNode(rig.id, "dev.impl", { runtime: "claude-code" });
+    const session = sessionRegistry.registerSession(node.id, "dev-impl@rehydrate-preflight-blocked");
+    sessionRegistry.updateStatus(session.id, "stopped");
+    insertStartupContextRow(db, node.id);
+    const missingPath = `/tmp/openrig-rigs-auto-preflight-missing-${Date.now()}.md`;
+    db.prepare("UPDATE node_startup_context SET resolved_files_json = ? WHERE node_id = ?").run(
+      JSON.stringify([{
+        path: "startup.md",
+        absolutePath: missingPath,
+        ownerRoot: "/tmp",
+        deliveryHint: "guidance_merge",
+        required: true,
+        appliesOn: ["restore"],
+      }]),
+      node.id,
+    );
+
+    const before = db.prepare("SELECT COUNT(*) AS n FROM snapshots WHERE rig_id = ?").get(rig.id) as { n: number };
+    const res = await app.request(`/api/rigs/${rig.id}/up`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ freshLogicalIds: ["dev.impl"] }),
+    });
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.code).toBe("pre_restore_validation_failed");
+    expect(body.blockers[0].path).toBe(missingPath);
+    const after = db.prepare("SELECT COUNT(*) AS n FROM snapshots WHERE rig_id = ?").get(rig.id) as { n: number };
+    expect(after.n).toBe(before.n);
   });
 
   it("POST /api/rigs/:id/up includes rigResult from restore rollup", async () => {

@@ -1151,6 +1151,14 @@ export interface NodeInventoryEntry {
     codexConfigProfile?: string | null;
     /** OPR.0.4.8.3 Seam B: attached permission_policy REF, or null when none is attached. */
     permissionPolicy?: string | null;
+    /** Which attachment level supplied the effective ref: the node's own member ref, or the rig fallback. */
+    permissionPolicySource?: "node" | "rig" | null;
+    /** Effective persisted launch posture for this seat (node provenance > rig provenance). */
+    launchPosture?: "floor" | "full_bypass" | "auto" | "unknown";
+    /** Which attachment level supplied the effective launch posture, when any. */
+    launchPostureSource?: "node" | "rig" | null;
+    /** Persisted rig-level non-interruptive launch choice. null = unknown (old daemon/schema). */
+    nonInterruptive?: boolean | null;
     resolvedSpecName: string | null;
     resolvedSpecVersion: string | null;
     resolvedSpecHash: string | null;
@@ -1922,7 +1930,7 @@ export type ContextUnknownReason = "unsupported_runtime" | "not_managed" | "miss
 export interface ContextUsage {
     availability: ContextAvailability;
     reason: ContextUnknownReason | null;
-    source: "claude_statusline_json" | "codex_token_count_jsonl" | null;
+    source: "claude_statusline_json" | "codex_token_count_jsonl" | "opencode_runner_json" | "dsh_runner_json" | null;
     usedPercentage: number | null;
     remainingPercentage: number | null;
     contextWindowSize: number | null;

@@ -730,6 +730,36 @@ describe("Session routes", () => {
     expect(body[0].canonicalSessionName).toBe("dev-impl@test-rig");
   });
 
+  it("GET /api/rigs/:rigId/nodes exposes effective policy, posture, and non-interruptive", async () => {
+    const { app, rigRepo, sessionRegistry } = createTestApp(db);
+    const rig = rigRepo.createRig("test-rig");
+    rigRepo.setRigPermissionPolicy(rig.id, "builtin:yolo");
+    rigRepo.setRigPolicyProvenance(rig.id, {
+      origin: "builtin", resolvedTarget: null, declaringDir: null, launchPosture: "full_bypass",
+    });
+    rigRepo.setRigNonInterruptive(rig.id, true);
+    const node = rigRepo.addNode(rig.id, "dev.impl", {
+      runtime: "claude-code", model: "claude-sonnet-4", permissionPolicy: "builtin:auto",
+    });
+    rigRepo.setNodePolicyProvenance(node.id, {
+      origin: "builtin", resolvedTarget: null, declaringDir: null, launchPosture: "auto",
+    });
+    sessionRegistry.registerSession(node.id, "dev-impl@test-rig");
+
+    const res = await app.request(`/api/rigs/${rig.id}/nodes`);
+    expect(res.status).toBe(200);
+    const body = await res.json() as Array<Record<string, unknown>>;
+    expect(body[0]).toMatchObject({
+      runtime: "claude-code",
+      model: "claude-sonnet-4",
+      permissionPolicy: "builtin:auto",
+      permissionPolicySource: "node",
+      launchPosture: "auto",
+      launchPostureSource: "node",
+      nonInterruptive: true,
+    });
+  });
+
   it("keeps permission observation off the fleet list and attaches it only to single-node detail", async () => {
     const diagnose = vi.fn(() => ({
       transport: { state: "healthy" as const },

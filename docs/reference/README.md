@@ -5,7 +5,7 @@ This directory is the user and operator reference that ships with `@openrig-loca
 under `$OPENRIG_HOME/reference/`). It is not the developer as-built tree, which
 stays in `docs/as-built/` and does not ship.
 
-> **文档地图：** 本区随包发布；开发视图见 [../as-built/README.md](../as-built/README.md)；仓内入口见 [DOCS-MAP.md](../../DOCS-MAP.md)；跨仓总图见 [../../../../deepseek-知识库/workflow-group/docs/openrig/README.md](../../../../deepseek-知识库/workflow-group/docs/openrig/README.md)。
+> **文档地图：** 本区随包发布；开发视图见 [../as-built/README.md](../as-built/README.md)；仓内入口见 [DOCS-MAP.md](../../DOCS-MAP.md)；跨仓总图见 `deepseek-知识库/workflow-group/docs/openrig/README.md`（外部控制面文档，不随本仓发布）。
 
 The index was checked against the 0.7.0 pre-line tree at `eba788d` on 2026-10-24. The
 local 0.1.x line changes the version line, the package scope (`@openrig-local/*` since

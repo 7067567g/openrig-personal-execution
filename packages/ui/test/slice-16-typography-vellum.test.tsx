@@ -54,11 +54,6 @@ describe("FeedCard typography + vellum-coherent chrome", () => {
     expect(source).toContain("font-body text-[12px] leading-relaxed text-on-surface");
   });
 
-  it("FeedCard prose copy is font-body 12px (bumped from 11px; the 'Your turn' hint itself is GONE per corrective \u00a77.1)", async () => {
-    const source = await readSource("src/components/for-you/FeedCard.tsx");
-    expect(source).toContain("font-body text-[12px] leading-relaxed text-on-surface");
-  });
-
   it("FeedCard kind indicator uses mono+leading-dot (no colored pills)", async () => {
     const source = await readSource("src/components/for-you/FeedCard.tsx");
     // KIND_DOT map maps each FeedCardKind to a design-token dot color.

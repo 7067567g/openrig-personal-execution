@@ -16,7 +16,8 @@
       "@openrig-local/daemon/gateway-protocol": ["../daemon/dist/gateway-protocol-surface.d.ts"],
       "@openrig-local/daemon/instance-initialization": [
         "../daemon/dist/instance-initialization-surface.d.ts"
-      ]
+      ],
+      "@openrig-local/daemon/entry-guard": ["../daemon/dist/entry-guard-surface.d.ts"]
     }
   },
   "include": ["src"],

@@ -226,3 +226,25 @@ test("missing manifest still returns rc=1 and never executes", { skip }, (t) => 
   assert.equal(parseReport(result).archiveStatus, "MISSING");
   assert.equal(existsSync(marker), false);
 });
+
+test("COMPLETE archive with an explicit n/a session snapshot passes", { skip }, (t) => {
+  const root = makeTempFixture();
+  t.after(() => cleanup(root));
+  const archiveRoot = path.join(root, "archive");
+  writeCompleteManifest(archiveRoot, { naSession: true });
+  const marker = path.join(root, "na.marker");
+
+  const result = runTeardown([
+    "--run-id", RUN_ID,
+    "--archive-root", archiveRoot,
+    "--execute",
+    "--teardown-cmd", `touch ${marker}`,
+    "--json",
+  ]);
+  assert.equal(result.code, 0, `n/a required item must not block teardown:\n${result.stdout}\n${result.stderr}`);
+  const report = parseReport(result);
+  assert.equal(report.complete, true);
+  assert.deepEqual(report.missingRequired, []);
+  assert.equal(report.notApplicable.sessionSnapshots, true);
+  assert.equal(existsSync(marker), true);
+});

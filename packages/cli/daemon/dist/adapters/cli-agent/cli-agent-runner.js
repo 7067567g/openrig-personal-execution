@@ -14,7 +14,8 @@ import { spawn } from "node:child_process";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { createCliAgentInput } from "./cli-agent-input.js";
 import { applyDshEvent, cleanDshError, createDshTurnState, dshTurnOutcome, } from "./dsh-event-protocol.js";
-import { CLI_AGENT_BUDGET_MARKER, CLI_AGENT_ERROR_MARKER, CLI_AGENT_EXITED_MARKER, CLI_AGENT_READY_MARKER, CLI_AGENT_RETRY_MARKER, buildCliAgentInvocation, cliAgentSeatPaths, parseCliAgentRunnerState, } from "./cli-agent-runner-protocol.js";
+import { CLI_AGENT_BUDGET_MARKER, CLI_AGENT_ERROR_MARKER, CLI_AGENT_EXITED_MARKER, CLI_AGENT_READY_MARKER, CLI_AGENT_RETRY_MARKER, buildCliAgentInvocation, cliAgentSeatPaths, cliAgentUsagePath, parseCliAgentRunnerState, } from "./cli-agent-runner-protocol.js";
+import { cliAgentUsageSnapshot, createCliAgentUsageState, observeCliAgentUsageEvent, parseCliAgentUsageSidecar, setCliAgentUsageSession, } from "./cli-agent-usage.js";
 import { canRetryTask, checkTaskBudget, createTaskBudgetState, formatTaskBudgetBreach, normalizeTaskBudgetConfig, observeTaskBudgetEvent, recordTaskRetry, taskBudgetCoverage, } from "./task-budget.js";
 function nonNegativeInt(raw, name) {
     if (raw === undefined)
@@ -78,11 +79,34 @@ function parseArgs(argv) {
 }
 const opts = parseArgs(process.argv.slice(2));
 const seat = cliAgentSeatPaths(opts.stateRoot, opts.sessionName);
+const usagePath = cliAgentUsagePath(opts.stateRoot, opts.sessionName);
 mkdirSync(seat.seatRoot, { recursive: true });
 let sessionId = opts.resumeToken;
 let currentChild = null;
 let shuttingDown = false;
 let queue = Promise.resolve();
+function readUsageSidecar() {
+    try {
+        return parseCliAgentUsageSidecar(readFileSync(usagePath, "utf8"));
+    }
+    catch {
+        return null;
+    }
+}
+const usageState = createCliAgentUsageState(opts.runtime, opts.sessionName, sessionId, readUsageSidecar());
+/** Atomic sidecar write; a failure is recorded on stderr and never fails a turn. */
+function writeUsage() {
+    try {
+        const snapshot = cliAgentUsageSnapshot(usageState, now());
+        const tmp = `${usagePath}.tmp`;
+        writeFileSync(tmp, JSON.stringify(snapshot), "utf8");
+        renameSync(tmp, usagePath);
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        process.stderr.write(`[cli-agent-runner] usage sidecar write failed: ${message}\n`);
+    }
+}
 function now() {
     return new Date().toISOString();
 }
@@ -142,8 +166,14 @@ function handleEvent(line, state, budget) {
     const topSessionId = event["sessionID"] ?? event["sessionId"];
     if (typeof topSessionId === "string" && topSessionId.length > 0) {
         sessionId = topSessionId;
+        if (setCliAgentUsageSession(usageState, sessionId, now()))
+            writeUsage();
         writeState({ sessionId });
     }
+    // Token/cost folding is independent of pane markers and budgets: it only
+    // persists when a usage event actually advanced the totals.
+    if (observeCliAgentUsageEvent(usageState, event, now()))
+        writeUsage();
     if (opts.runtime === "opencode") {
         const part = event["part"];
         if (event["type"] === "text" && part && typeof part === "object") {
@@ -176,6 +206,8 @@ function handleEvent(line, state, budget) {
         const effect = applyDshEvent(event, state);
         if (effect.sessionId !== undefined) {
             sessionId = effect.sessionId;
+            if (setCliAgentUsageSession(usageState, sessionId, now()))
+                writeUsage();
             writeState({ sessionId });
         }
         if (effect.text !== undefined)

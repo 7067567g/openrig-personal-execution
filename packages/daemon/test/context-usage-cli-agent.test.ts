@@ -7,6 +7,8 @@ import { createDb } from "../src/db/connection.js";
 import { migrate } from "../src/db/migrate.js";
 import { ContextUsageStore, FRESHNESS_THRESHOLD_MS } from "../src/domain/context-usage-store.js";
 import { ALL_MIGRATIONS } from "../src/db/all-migrations.js";
+import { RigRepository } from "../src/domain/rig-repository.js";
+import { SessionRegistry } from "../src/domain/session-registry.js";
 
 // Read-surface contract for the OpenCode/DSH runner `usage.json` sidecar
 // (packet 4). Fixtures are literal JSON — the producer module is covered by
@@ -48,7 +50,7 @@ describe("ContextUsageStore.readCliAgentAndNormalize", () => {
     sessionId: "ses_abc",
     sampledAt: new Date().toISOString(),
     steps: 3,
-    totals: { input: 100, output: 40, reasoning: 10, cacheRead: 25, cacheWrite: 5, costUsd: 0.125 },
+    totals: { input: 100, output: 40, reasoning: 10, cacheRead: 25, cacheWrite: 5, total: null, costUsd: 0.125 },
     lastStep: {
       at: new Date().toISOString(),
       input: 50,
@@ -56,6 +58,7 @@ describe("ContextUsageStore.readCliAgentAndNormalize", () => {
       reasoning: 5,
       cacheRead: 10,
       cacheWrite: 2,
+      total: null,
       costUsd: 0.05,
     },
   };
@@ -67,8 +70,8 @@ describe("ContextUsageStore.readCliAgentAndNormalize", () => {
     sessionId: "session-abc",
     sampledAt: new Date().toISOString(),
     steps: 2,
-    totals: { input: 60, output: 20, reasoning: 0, cacheRead: 4, cacheWrite: 1, costUsd: null },
-    lastStep: { at: new Date().toISOString(), input: 30, output: 10, reasoning: 0, cacheRead: 2, cacheWrite: 0, costUsd: null },
+    totals: { input: 60, output: 20, reasoning: null, cacheRead: 4, cacheWrite: 1, total: null, costUsd: null },
+    lastStep: { at: new Date().toISOString(), input: 30, output: 10, reasoning: null, cacheRead: 2, cacheWrite: 0, total: null, costUsd: null },
   };
 
   it("normalizes an opencode sidecar: prompt/output totals, source, cost and step detail", () => {
@@ -97,7 +100,7 @@ describe("ContextUsageStore.readCliAgentAndNormalize", () => {
     expect(breakdown["totals"]).toMatchObject({ costUsd: 0.125 });
   });
 
-  it("normalizes a dsh sidecar with null cost and reasoning folded into output", () => {
+  it("normalizes a dsh sidecar with null cost and unreported reasoning", () => {
     writeUsage("dsh", dshSidecar);
 
     const usage = store.readCliAgentAndNormalize({ runtime: "dsh", sessionName: SESSION });
@@ -150,5 +153,103 @@ describe("ContextUsageStore.readCliAgentAndNormalize", () => {
 
     expect(usage.availability).toBe("unknown");
     expect(usage.reason).toBe("parse_error");
+  });
+
+  it("keeps a totalTokens-only sidecar known without inventing component zeros", () => {
+    writeUsage("dsh", {
+      ...dshSidecar,
+      steps: 1,
+      totals: {
+        input: null, output: null, reasoning: null,
+        cacheRead: null, cacheWrite: null, total: 77, costUsd: null,
+      },
+      lastStep: {
+        at: new Date().toISOString(),
+        input: null, output: null, reasoning: null,
+        cacheRead: null, cacheWrite: null, total: 77, costUsd: null,
+      },
+    });
+
+    const usage = store.readCliAgentAndNormalize({ runtime: "dsh", sessionName: SESSION });
+    expect(usage.availability).toBe("known");
+    expect(usage.totalInputTokens).toBeNull();
+    expect(usage.totalOutputTokens).toBeNull();
+    const detail = JSON.parse(usage.currentUsage ?? "null") as Record<string, any>;
+    expect(detail["totals"]["total"]).toBe(77);
+    expect(detail["totals"]["input"]).toBeNull();
+    expect(detail["coverage"]["input"]).toBe("not_reported");
+  });
+
+  it("does not turn missing counters into a known zero when some counters are present", () => {
+    writeUsage("opencode", {
+      ...opencodeSidecar,
+      steps: 1,
+      totals: {
+        input: 9, output: null, reasoning: null,
+        cacheRead: null, cacheWrite: null, total: null, costUsd: null,
+      },
+      lastStep: {
+        at: new Date().toISOString(),
+        input: 9, output: null, reasoning: null,
+        cacheRead: null, cacheWrite: null, total: null, costUsd: null,
+      },
+    });
+
+    const usage = store.readCliAgentAndNormalize({ runtime: "opencode", sessionName: SESSION });
+    expect(usage.availability).toBe("known");
+    expect(usage.totalInputTokens).toBe(9);
+    expect(usage.totalOutputTokens).toBeNull();
+    const detail = JSON.parse(usage.currentUsage ?? "null") as Record<string, any>;
+    expect(detail["totals"]["output"]).toBeNull();
+    expect(detail["totals"]["cacheRead"]).toBeNull();
+    expect(detail["coverage"]["output"]).toBe("not_reported");
+    expect(detail["coverage"]["cacheRead"]).toBe("not_reported");
+  });
+
+  it("rejects a predecessor's sidecar when the live DB tenure has a different generation", () => {
+    const rigRepo = new RigRepository(db);
+    const rig = rigRepo.createRig("usage-rig");
+    const node = rigRepo.addNode(rig.id, "dev.impl", { runtime: "opencode" });
+    new SessionRegistry(db).registerSession(node.id, SESSION, "initial", "gen-live");
+
+    writeUsage("opencode", { ...opencodeSidecar, occupantGeneration: "gen-predecessor" });
+    expect(store.readCliAgentAndNormalize({ runtime: "opencode", sessionName: SESSION })).toMatchObject({
+      availability: "unknown",
+      reason: "stale_generation",
+    });
+
+    writeUsage("opencode", { ...opencodeSidecar, occupantGeneration: "gen-live" });
+    const current = store.readCliAgentAndNormalize({ runtime: "opencode", sessionName: SESSION });
+    expect(current.availability).toBe("known");
+    const detail = JSON.parse(current.currentUsage ?? "null") as Record<string, unknown>;
+    expect(detail["occupantGeneration"]).toBe("gen-live");
+  });
+
+  it("rejects a legacy generation-less sidecar when the live tenure is known", () => {
+    const rigRepo = new RigRepository(db);
+    const rig = rigRepo.createRig("usage-rig");
+    const node = rigRepo.addNode(rig.id, "dev.impl", { runtime: "opencode" });
+    new SessionRegistry(db).registerSession(node.id, SESSION, "initial", "gen-live");
+    writeUsage("opencode", opencodeSidecar);
+
+    expect(store.readCliAgentAndNormalize({ runtime: "opencode", sessionName: SESSION })).toMatchObject({
+      availability: "unknown",
+      reason: "stale_generation",
+    });
+  });
+
+  it("accepts an explicit matching generation fence and rejects a missing sidecar generation", () => {
+    writeUsage("opencode", { ...opencodeSidecar, occupantGeneration: "gen-match" });
+    expect(store.readCliAgentAndNormalize({
+      runtime: "opencode", sessionName: SESSION, occupantGeneration: "gen-match",
+    }).availability).toBe("known");
+    expect(store.readCliAgentAndNormalize({
+      runtime: "opencode", sessionName: SESSION, occupantGeneration: "gen-other",
+    })).toMatchObject({ availability: "unknown", reason: "stale_generation" });
+
+    writeUsage("opencode", opencodeSidecar);
+    expect(store.readCliAgentAndNormalize({
+      runtime: "opencode", sessionName: SESSION, occupantGeneration: "gen-match",
+    })).toMatchObject({ availability: "unknown", reason: "stale_generation" });
   });
 });

@@ -180,8 +180,12 @@ in `audit_notes_json` (`domain/scope/scope-approve.ts:292`). The audit browse
   `app.post("/action", requireAuth)` (`routes/mission-control.ts:307`) and
   `app.post("/notifications/test", requireAuth)` (`:308`). Reads are not
   bearer-gated. It is one static token; no OAuth/SSO/per-user model
-  (`auth-bearer-token.ts:11–14`). Every Mission Control request, read or
-  write, first passes the daemon's `/api/*` browser boundary
+  (`auth-bearer-token.ts:11–14`). Before any route, every mutating `/api/*`
+  request also passes the source-aware `mutationAuthMiddleware`: loopback peers
+  are trusted, non-loopback peers must present the scoped bearer, and a
+  non-loopback listener with no configured operator token refuses remote
+  mutations. Every Mission Control request, read or write, first passes the
+  daemon's `/api/*` browser boundary
   (`server.ts:647`; `middleware/browser-boundary.ts`): only known target host
   names, and, when an `Origin` header is present, only the daemon's own UI
   origin or an `OPENRIG_ALLOWED_ORIGINS` entry. A valid bearer token waives

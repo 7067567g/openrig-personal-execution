@@ -55,6 +55,14 @@ interface NodeEntry {
   nodeKind: "agent" | "infrastructure";
   runtime: string | null;
   model: string | null;
+  /** Effective permission-policy REF (member ref > rig ref), or null. */
+  permissionPolicy?: string | null;
+  permissionPolicySource?: "node" | "rig" | null;
+  /** Persisted effective launch posture; "unknown" when no provenance is attached. */
+  launchPosture?: "floor" | "full_bypass" | "auto" | "unknown";
+  launchPostureSource?: "node" | "rig" | null;
+  /** Persisted rig-level non-interruptive choice; null = unknown (old daemon/schema). */
+  nonInterruptive?: boolean | null;
   sessionStatus: string | null;
   intentionallyStopped?: boolean;
   startupStatus: "pending" | "ready" | "attention_required" | "failed" | null;
@@ -207,6 +215,11 @@ const ALLOWED_NODE_FIELDS = new Set([
   "runtime",
   "agentApp",
   "model",
+  "permissionPolicy",
+  "permissionPolicySource",
+  "launchPosture",
+  "launchPostureSource",
+  "nonInterruptive",
   "sessionStatus",
   "intentionallyStopped",
   "startupStatus",
@@ -641,6 +654,12 @@ export function formatDeclaredModel(model: string | null | undefined): string {
   return m.length > 0 ? m : "not-declared";
 }
 
+export function formatNonInterruptive(value: boolean | null | undefined): "true" | "false" | "unknown" {
+  if (value === true) return "true";
+  if (value === false) return "false";
+  return "unknown";
+}
+
 export function compactNodeProjection(nodes: NodeEntry[]): Array<Record<string, unknown>> {
   return nodes.map((n) => {
     const attention = needsAttention(n);
@@ -685,6 +704,18 @@ export function compactNodeProjection(nodes: NodeEntry[]): Array<Record<string, 
       // else null (documented FR-4 fallback — not a fabricated timestamp).
       lastActivity: n.agentActivity?.sampledAt ?? n.startupCompletedAt ?? null,
     };
+    // Presence-governed policy posture: a current daemon emits these keys (with
+    // null/"unknown" where genuinely unknown); an older daemon omits them, and
+    // the compact projection stays token-lean instead of inventing tri-state.
+    if ("permissionPolicy" in n) {
+      compact.permissionPolicy = n.permissionPolicy ?? null;
+      compact.permissionPolicySource = n.permissionPolicySource ?? null;
+    }
+    if ("launchPosture" in n) {
+      compact.launchPosture = n.launchPosture ?? "unknown";
+      compact.launchPostureSource = n.launchPostureSource ?? null;
+    }
+    if ("nonInterruptive" in n) compact.nonInterruptive = n.nonInterruptive ?? null;
     if (n.intentionallyStopped !== undefined) compact.intentionallyStopped = n.intentionallyStopped;
     // held/attention reason (short) when present.
     if (n.heldReason) compact.heldReason = n.heldReason;
@@ -841,8 +872,9 @@ contextUsage.percent, contextUsage.state. Other keys are rejected.
 activeCount, hasWorkCount, attentionCount, status, lifecycleState, uptime,
 latestSnapshot.
 --fields accepts (node-level, with --nodes): rigId, rigName, logicalId, podId,
-podNamespace, hostSelfId, canonicalSessionName, nodeKind, runtime, agentApp, model, sessionStatus,
-intentionallyStopped, startupStatus, restoreOutcome, lifecycleState, tmuxAttachCommand,
+podNamespace, hostSelfId, canonicalSessionName, nodeKind, runtime, agentApp, model,
+permissionPolicy, permissionPolicySource, launchPosture, launchPostureSource, nonInterruptive,
+sessionStatus, intentionallyStopped, startupStatus, restoreOutcome, lifecycleState, tmuxAttachCommand,
 resumeCommand, latestError, terminalActive, hasAssignedWork,
 assignedWorkCount, pendingWorkCount, inProgressWorkCount, blockedWorkCount,
 agentActivity, contextUsage, heldReason.
@@ -1275,6 +1307,18 @@ async function handleNodes(
         n.restoreOutcome,
         missingSessionGuidance(n) ?? (n.latestError ? truncate(n.latestError, 30) : n.heldReason ? `held: ${truncate(n.heldReason, 25)}` : "—"),
       ));
+    }
+  }
+  // Posture is a separate safety dimension from lifecycle; keep it legible without
+  // widening the already-wide node table. JSON carries the same fields by default.
+  if (opts.full || opts.verbose) {
+    for (const n of humanList as NodeEntry[]) {
+      console.log(
+        `  ${n.canonicalSessionName ?? n.logicalId}: ` +
+        `policy=${n.permissionPolicy ?? "none"} ` +
+        `posture=${n.launchPosture ?? "unknown"} ` +
+        `non-interruptive=${formatNonInterruptive(n.nonInterruptive)}`,
+      );
     }
   }
   // Keep an actionable startup continuation outside the table's clipped cells.

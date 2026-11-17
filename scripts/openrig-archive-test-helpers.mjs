@@ -88,7 +88,7 @@ export const RUN_ID = "openrig-guard-fixture";
  *   home/openrig.sqlite (valid), home/daemon.json, home/transcripts/transcript-seat.jsonl
  *   sessions/workspace-key/<session-id>/events.jsonl
  */
-export function makeStrictFixture(root, { homeMode = "good", withSession = true } = {}) {
+export function makeStrictFixture(root, { homeMode = "good", withSession = true, runtimes = [] } = {}) {
   const runDir = path.join(root, RUN_ID);
   const homeDir = path.join(root, "home");
   const sessionsRoot = path.join(root, "sessions");
@@ -97,6 +97,10 @@ export function makeStrictFixture(root, { homeMode = "good", withSession = true 
 
   writeFile(path.join(runDir, "OPENRIG-STATE.json"), '{"status":"ready"}\n');
   writeFile(path.join(runDir, "transcripts", "transcript-control.jsonl"), '{"seq":1}\n{"seq":2}\n');
+  if (runtimes.length > 0) {
+    const members = runtimes.map((runtime, index) => `  - id: seat-${index}\n    runtime: ${runtime}\n`).join("");
+    writeFile(path.join(runDir, "openrig", "rig.yaml"), `version: '0.2'\nname: ${RUN_ID}\nmembers:\n${members}`);
+  }
 
   if (homeMode !== "empty") {
     writeFile(path.join(homeDir, "daemon.json"), '{"pid":4242}\n');
@@ -117,16 +121,17 @@ export function makeStrictFixture(root, { homeMode = "good", withSession = true 
   return { root, runDir, homeDir, sessionsRoot, sessionId, archiveRoot, runId: RUN_ID };
 }
 
-export function archiveArgs(fixture, archiveRoot = fixture.archiveRoot, extra = []) {
-  return [
+export function archiveArgs(fixture, archiveRoot = fixture.archiveRoot, extra = [], { withSession = true } = {}) {
+  const args = [
     "--run-dir", fixture.runDir,
     "--openrig-home", fixture.homeDir,
-    "--session-id", fixture.sessionId,
     "--session-root", fixture.sessionsRoot,
     "--archive-root", archiveRoot,
     "--machine", "test-machine",
     ...extra,
   ];
+  if (withSession) args.push("--session-id", fixture.sessionId);
+  return args;
 }
 
 export function manifestPath(fixture, archiveRoot = fixture.archiveRoot) {
@@ -203,14 +208,15 @@ export function writePartialManifest(archiveRoot, { runId = RUN_ID, missing = ["
   return dir;
 }
 
-export function writeCompleteManifest(archiveRoot, { runId = RUN_ID } = {}) {
+export function writeCompleteManifest(archiveRoot, { runId = RUN_ID, naSession = false } = {}) {
   const required = {
     runSnapshot: true,
-    sessionSnapshots: true,
+    sessionSnapshots: naSession ? false : true,
     transcriptCapture: true,
     openrigState: true,
     homeSnapshot: true,
   };
+  const notApplicable = naSession ? { sessionSnapshots: true } : {};
   const dir = path.join(archiveRoot, "machines", "test-machine", "runs", runId);
   writeFile(path.join(dir, "RECORD.md"), "# complete fixture\n");
   writeFile(
@@ -221,6 +227,7 @@ export function writeCompleteManifest(archiveRoot, { runId = RUN_ID } = {}) {
         archiveStatus: "COMPLETE",
         runId,
         required,
+        notApplicable,
         missing: [],
         files: [{ path: "RECORD.md", bytes: 19, sha256: sha256File(path.join(dir, "RECORD.md")), scope: "run" }],
       },

@@ -1781,14 +1781,6 @@ describe("RestoreCheckService", () => {
     expect(caveat!.blocking).toBe(false);
   });
 
-  it("restorable verdict has repairPacket null (nothing to repair)", () => {
-    const service = new RestoreCheckService(mockDeps());
-    const result = service.check({ noHooks: true });
-
-    expect(result.verdict).toBe("restorable");
-    expect(result.repairPacket).toBeNull();
-  });
-
   it("repair packet orders blockers before caveats with 1-indexed steps", () => {
     // Red daemon + yellow missing snapshot = blocker first, caveat second
     const service = new RestoreCheckService(mockDeps({

@@ -15,6 +15,7 @@ import { agentAppLabel } from "./agent-app-presets.js";
 import { agentAppOf } from "./built-in-runtimes.js";
 import { sessionAgentAppSelect } from "./session-registry.js";
 // -- Helpers --
+const LAUNCH_POSTURES = new Set(["floor", "full_bypass", "auto"]);
 function computeResumeCommand(runtime, resumeToken, codexConfigProfile, codexDaemonOptOut) {
     return buildNativeResumeCommand(runtime, resumeToken, null, codexConfigProfile, codexDaemonOptOut);
 }
@@ -415,12 +416,21 @@ export function getNodeInventory(db, rigId) {
  */
 function runInventoryRowQuery(db, whereClause, orderClause, params) {
     // Join nodes with newest session (max ULID = max session.id string comparison)
-    // and the rig name
-    const hasCodexConfigProfile = db.prepare("PRAGMA table_info(nodes)").all()
-        .some((row) => row.name === "codex_config_profile");
-    const codexConfigProfileSelect = hasCodexConfigProfile
+    // and the rig name. Column probes keep pre-migration fixture DBs readable.
+    const nodeColumns = new Set(db.prepare("PRAGMA table_info(nodes)").all()
+        .map((row) => row.name)
+        .filter((name) => typeof name === "string"));
+    const rigColumns = new Set(db.prepare("PRAGMA table_info(rigs)").all()
+        .map((row) => row.name)
+        .filter((name) => typeof name === "string"));
+    const codexConfigProfileSelect = nodeColumns.has("codex_config_profile")
         ? "n.codex_config_profile"
         : "NULL";
+    const nodePermissionPolicySelect = nodeColumns.has("permission_policy") ? "n.permission_policy" : "NULL";
+    const nodePolicyPostureSelect = nodeColumns.has("policy_launch_posture") ? "n.policy_launch_posture" : "NULL";
+    const rigPermissionPolicySelect = rigColumns.has("permission_policy") ? "r.permission_policy" : "NULL";
+    const rigPolicyPostureSelect = rigColumns.has("rig_policy_launch_posture") ? "r.rig_policy_launch_posture" : "NULL";
+    const rigNonInterruptiveSelect = rigColumns.has("non_interruptive") ? "r.non_interruptive" : "NULL";
     const stmt = db.prepare(`
     SELECT
       n.id as node_id,
@@ -432,6 +442,11 @@ function runInventoryRowQuery(db, whereClause, orderClause, params) {
       n.role,
       n.runtime,
       n.model,
+      ${nodePermissionPolicySelect} as node_permission_policy,
+      ${nodePolicyPostureSelect} as node_policy_launch_posture,
+      ${rigPermissionPolicySelect} as rig_permission_policy,
+      ${rigPolicyPostureSelect} as rig_policy_launch_posture,
+      ${rigNonInterruptiveSelect} as rig_non_interruptive,
       ${codexConfigProfileSelect} as codex_config_profile,
       n.agent_ref,
       n.profile,
@@ -517,6 +532,24 @@ function buildInventoryEntry(db, row, ctx) {
         usableSnapshot,
         identityVerdict: identityVerdict?.verdict ?? null,
     });
+    const nodePermissionPolicy = row.node_permission_policy?.trim() || null;
+    const rigPermissionPolicy = row.rig_permission_policy?.trim() || null;
+    const effectivePermissionPolicy = nodePermissionPolicy
+        ? { ref: nodePermissionPolicy, source: "node" }
+        : rigPermissionPolicy
+            ? { ref: rigPermissionPolicy, source: "rig" }
+            : { ref: null, source: null };
+    const nodePosture = row.node_policy_launch_posture && LAUNCH_POSTURES.has(row.node_policy_launch_posture)
+        ? row.node_policy_launch_posture
+        : null;
+    const rigPosture = row.rig_policy_launch_posture && LAUNCH_POSTURES.has(row.rig_policy_launch_posture)
+        ? row.rig_policy_launch_posture
+        : null;
+    const effectiveLaunchPosture = nodePosture
+        ? { posture: nodePosture, source: "node" }
+        : rigPosture
+            ? { posture: rigPosture, source: "rig" }
+            : { posture: "unknown", source: null };
     return {
         nodeId: row.node_id,
         rigId: row.rig_id,
@@ -566,6 +599,13 @@ function buildInventoryEntry(db, row, ctx) {
         latestError: row.startup_status === "ready" ? null : getLatestError(db, row.rig_id, row.node_id),
         // Extended fields
         model: row.model,
+        permissionPolicy: effectivePermissionPolicy.ref,
+        permissionPolicySource: effectivePermissionPolicy.source,
+        launchPosture: effectiveLaunchPosture.posture,
+        launchPostureSource: effectiveLaunchPosture.source,
+        nonInterruptive: typeof row.rig_non_interruptive === "number"
+            ? row.rig_non_interruptive === 1
+            : null,
         agentRef: row.agent_ref,
         profile: row.profile,
         codexConfigProfile: row.codex_config_profile,

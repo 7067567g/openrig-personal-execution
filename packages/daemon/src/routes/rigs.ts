@@ -683,8 +683,42 @@ rigsRoutes.post("/:id/up", async (c) => {
     return c.json(buildRestorePlanPreview(rig, snapshot ?? null, collectPreviewSessionRows(repo.db, rig, snapshot ?? null), undefined, Date.now(), readFreshOccupantRelations(repo.db, rig.rig.id)), 200);
   }
 
+  const restoreOrch = c.get("restoreOrchestrator" as never) as RestoreOrchestrator | undefined;
+  if (!restoreOrch) {
+    return c.json({ error: "Restore orchestrator not available" }, 500);
+  }
+
+  const adapters = c.get("runtimeAdapters" as never) as Record<string, import("../domain/runtime-adapter.js").RuntimeAdapter> | undefined;
+  const fs = await import("node:fs");
+  const fsOps = { exists: (p: string) => fs.existsSync(p) };
   if (!snapshot) {
-    snapshot = snapshotCapture.captureSnapshot(rigId, "auto-rehydrate");
+    // Preflight the exact payload before persisting auto-rehydrate. A live or
+    // unknown session, or a structural blocker, must not create a snapshot.
+    const preparedData = snapshotCapture.prepareSnapshotData(rigId, "auto-rehydrate");
+    const preflight = await restoreOrch.preflightSnapshotData(preparedData, {
+      fsOps,
+      freshLogicalIds,
+    });
+    if (!preflight.ok) {
+      if (preflight.code === "rig_not_stopped") {
+        return c.json({ error: preflight.message, code: preflight.code }, 409);
+      }
+      return c.json({
+        status: "not_attempted",
+        rigId,
+        rigName: rig.rig.name,
+        error: preflight.message,
+        code: preflight.code,
+        snapshotKind: "auto-rehydrate",
+        rigResult: "not_attempted",
+        warnings: preflight.validation.warnings,
+        blockers: preflight.validation.blockers,
+        intendedRoster: preflight.topology.intendedRoster,
+        excludedNodes: preflight.topology.excludedNodes,
+        remediation: preflight.validation.blockers.map((blocker) => blocker.remediation),
+      }, 409);
+    }
+    snapshot = snapshotCapture.captureSnapshot(rigId, "auto-rehydrate", { preparedData });
     snapshotSelection = {
       ...summarizeSnapshot(snapshot),
       mode: "automatic",
@@ -694,16 +728,9 @@ rigsRoutes.post("/:id/up", async (c) => {
     capturedCurrentState = true;
   }
 
-  const restoreOrch = c.get("restoreOrchestrator" as never) as RestoreOrchestrator | undefined;
-  if (!restoreOrch) {
-    return c.json({ error: "Restore orchestrator not available" }, 500);
-  }
-
-  const adapters = c.get("runtimeAdapters" as never) as Record<string, import("../domain/runtime-adapter.js").RuntimeAdapter> | undefined;
-  const fs = await import("node:fs");
   const result = await restoreOrch.restore(snapshot.id, {
     adapters: adapters ?? {},
-    fsOps: { exists: (p: string) => fs.existsSync(p) },
+    fsOps,
     freshLogicalIds,
     snapshotSelection,
   });
@@ -735,6 +762,7 @@ rigsRoutes.post("/:id/up", async (c) => {
     rigName: rig.rig.name,
     snapshotId: snapshot.id,
     snapshotKind: snapshot.kind,
+    preRestoreSnapshotId: result.result.preRestoreSnapshotId,
     rigResult: result.result.rigResult,
     nodes: result.result.nodes,
     warnings: capturedCurrentState

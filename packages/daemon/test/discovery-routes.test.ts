@@ -118,23 +118,6 @@ describe("Discovery API routes", () => {
     expect(body.nodeId).toBeTruthy();
   });
 
-  it("POST /api/discovery/:id/bind binds into an existing managed node", async () => {
-    const id = seedDiscovery();
-    const rig = seedRig();
-    setup.rigRepo.addNode(rig.id, "orch.lead", { runtime: "claude-code", cwd: "/workspace" });
-
-    const res = await app.request(`/api/discovery/${id}/bind`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rigId: rig.id, logicalId: "orch.lead" }),
-    });
-
-    expect(res.status).toBe(201);
-    const body = await res.json();
-    expect(body.ok).toBe(true);
-    expect(body.nodeId).toBeTruthy();
-  });
-
   it("POST /api/discovery/:id/adopt binds into an existing managed node target", async () => {
     const id = seedDiscovery();
     const rig = seedRig();

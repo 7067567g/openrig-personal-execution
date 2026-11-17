@@ -12,6 +12,9 @@ interface CostPayload {
 }
 /** A real estimate below a cent prints as "<$0.01", never "$0.00" (which reads as zero); JSON keeps the exact value. */
 export declare function formatUsd(value: number): string;
+/** Name the estimate's actual provenance. The cost view already carries the
+ * runtime and source; never relabel every non-Pi estimate as Claude's. */
+export declare function estimateProvenance(seat: Record<string, unknown>): string;
 /** One labelled line per seat. Never prints a dollar figure the route didn't report. */
 export declare function costLine(seat: CostPayload["seats"][number]): string;
 export declare function usageCommand(depsOverride?: StatusDeps): Command;

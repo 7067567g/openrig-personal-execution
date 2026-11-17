@@ -1,9 +1,12 @@
 import Database from "better-sqlite3";
+import { join } from "node:path";
 import os from "node:os";
 import { closeSync, existsSync, openSync, readFileSync, readSync, statSync, unlinkSync } from "node:fs";
 import { resolveCodexDbPaths } from "./codex-thread-id.js";
 import { parseSqliteUtcMs } from "./sqlite-time.js";
 import { contextUsageDirectory, legacyContextUsageDirectory, telemetrySidecarPath, } from "./telemetry-state-paths.js";
+import { parseCliAgentUsageSidecar, } from "../adapters/cli-agent/cli-agent-usage.js";
+import { cliAgentUsagePath } from "../adapters/cli-agent/cli-agent-runner-protocol.js";
 /** Freshness threshold: samples older than this are considered stale for compact displays. */
 export const FRESHNESS_THRESHOLD_MS = 600_000; // 10 minutes per PM spec
 export class ContextUsageStore {
@@ -110,6 +113,114 @@ export class ContextUsageStore {
     /** Resolve an explicitly selected native thread, even before its first token count. */
     readCodexTranscriptPath(threadId) {
         return this.readCodexThread(threadId)?.rollout_path ?? null;
+    }
+    /**
+     * Read the OpenCode/DSH runner's per-seat `usage.json` sidecar and normalize it.
+     *
+     * The runner owns the fold (streaming tokens/cost → monotonic totals); this
+     * read surface only maps the snapshot onto `ContextUsage`. `stateDir` is
+     * OPENRIG_HOME, so the sidecar lives at
+     * `OPENRIG_HOME/state/<runtime>/<sanitized-session>/usage.json`.
+     *
+     * Missing file → `missing_sidecar`; unparseable/incompatible sidecar →
+     * `parse_error`. Neither is treated as a zero sample.
+     */
+    readCliAgentAndNormalize(input) {
+        const stateRoot = join(this.stateDir, "state", input.runtime);
+        const filePath = cliAgentUsagePath(stateRoot, input.sessionName);
+        let raw;
+        try {
+            if (!existsSync(filePath))
+                return this.unknownUsage("missing_sidecar");
+            raw = readFileSync(filePath, "utf-8");
+        }
+        catch {
+            return this.unknownUsage("parse_error");
+        }
+        const sidecar = parseCliAgentUsageSidecar(raw);
+        if (!sidecar || sidecar.runtime !== input.runtime || sidecar.sessionName !== input.sessionName) {
+            return this.unknownUsage("parse_error");
+        }
+        // A same-name successor writes to the same name-keyed path. The sidecar
+        // names the generation that produced it; compare against the live tenure
+        // before trusting any of its totals. A known live generation with a missing
+        // or different sidecar generation is stale_generation, never inherited.
+        const explicitGeneration = typeof input.occupantGeneration === "string" && input.occupantGeneration.length > 0
+            ? input.occupantGeneration
+            : null;
+        const currentGeneration = explicitGeneration ?? this.resolveOccupantGenerationForSession(input.sessionName);
+        if (currentGeneration !== null && sidecar.occupantGeneration !== currentGeneration) {
+            return this.unknownUsage("stale_generation");
+        }
+        return this.normalizeCliAgentUsage(sidecar);
+    }
+    /** Resolve the live tenure for a seat name without importing SessionRegistry
+     * (the store owns the same DB). Any failure is UNKNOWN, not a fabricated match. */
+    resolveOccupantGenerationForSession(sessionName) {
+        try {
+            const session = this.db.prepare("SELECT node_id FROM sessions WHERE session_name = ? ORDER BY id DESC LIMIT 1").get(sessionName);
+            if (!session)
+                return null;
+            const tenure = this.db.prepare("SELECT generation_uuid FROM occupant_tenures WHERE node_id = ? ORDER BY generation_ordinal DESC LIMIT 1").get(session.node_id);
+            return tenure?.generation_uuid ?? null;
+        }
+        catch {
+            return null;
+        }
+    }
+    /** Map a validated runner usage sidecar to the shared context-usage shape.
+     * Missing token components remain null; they are never added as zero. */
+    normalizeCliAgentUsage(sidecar) {
+        const { totals, lastStep, steps } = sidecar;
+        const counters = [
+            totals.input, totals.output, totals.reasoning,
+            totals.cacheRead, totals.cacheWrite, totals.total,
+        ];
+        if (steps <= 0 || counters.every((value) => value === null)) {
+            return this.unknownUsage("no_data");
+        }
+        // Keep partial knowledge honest. An unreported cache/reasoning component
+        // is not assumed to be zero; the coverage block says what was observed.
+        // The aggregate carries only the components actually reported. When a
+        // component is unreported the coverage block below says so; it is never
+        // silently substituted with a zero.
+        const totalInputTokens = totals.input === null
+            ? null
+            : totals.cacheRead === null ? totals.input : totals.input + totals.cacheRead;
+        const totalOutputTokens = totals.output === null
+            ? null
+            : totals.reasoning === null ? totals.output : totals.output + totals.reasoning;
+        return {
+            availability: "known",
+            reason: null,
+            source: sidecar.runtime === "opencode" ? "opencode_runner_json" : "dsh_runner_json",
+            // The runners report tokens and cost, not a context-window measurement.
+            usedPercentage: null,
+            remainingPercentage: null,
+            contextWindowSize: null,
+            totalInputTokens,
+            totalOutputTokens,
+            currentUsage: this.normalizeCurrentUsage({
+                steps,
+                totals,
+                lastStep,
+                ...(sidecar.occupantGeneration ? { occupantGeneration: sidecar.occupantGeneration } : {}),
+                coverage: {
+                    input: totals.input === null ? "not_reported" : "reported",
+                    output: totals.output === null ? "not_reported" : "reported",
+                    reasoning: totals.reasoning === null ? "not_reported" : "reported",
+                    cacheRead: totals.cacheRead === null ? "not_reported" : "reported",
+                    cacheWrite: totals.cacheWrite === null ? "not_reported" : "reported",
+                    total: totals.total === null ? "not_reported" : "reported",
+                },
+            }),
+            transcriptPath: null,
+            sessionId: sidecar.sessionId ?? null,
+            sessionName: sidecar.sessionName,
+            sampledAt: sidecar.sampledAt,
+            fresh: this.isFresh(sidecar.sampledAt),
+            clientCostEstimateUsd: totals.costUsd,
+        };
     }
     /** Normalize raw sidecar data into a ContextUsage record. */
     normalizeSample(raw) {

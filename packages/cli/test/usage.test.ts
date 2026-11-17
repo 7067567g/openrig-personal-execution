@@ -181,7 +181,9 @@ describe("rig usage CLI grammar (daemon-backed)", () => {
 describe("rig usage cost lines (OPR.0.7.0.2)", () => {
   it("labels a Claude estimate, its window and staleness; never prints a dollar figure for absent or Codex seats", async () => {
     const { costLine } = await import("../src/commands/usage.js");
-    const reported = costLine({ seatSession: "dev@r", status: "reported", costUsd: 1.5, resets: 1, stale: true, ageSeconds: 900,
+    const reported = costLine({ seatSession: "dev@r", runtime: "claude-code", status: "reported",
+      kind: "client-side estimate", source: "Claude statusline cost.total_cost_usd",
+      costUsd: 1.5, resets: 1, stale: true, ageSeconds: 900,
       window: { nativeSessionId: "s1", since: "2026-10-13T10:00:00.000Z", asOf: "2026-10-13T10:05:00.000Z" }, tokens: { input: 10, output: 2 } });
     expect(reported).toContain("$1.50 client-side estimate (Claude statusline) for session s1 since 2026-10-13T10:00:00.000Z");
     expect(reported).toContain("1 reset");
@@ -195,6 +197,42 @@ describe("rig usage cost lines (OPR.0.7.0.2)", () => {
   });
 });
 
+describe("rig usage cost: estimate provenance follows the served runtime/source", () => {
+  it("labels OpenCode from its source instead of calling it Claude statusline", async () => {
+    const { costLine } = await import("../src/commands/usage.js");
+    const line = costLine({
+      seatSession: "oc@r", runtime: "opencode", status: "reported",
+      kind: "client-side estimate", source: "OpenCode step_finish cost",
+      costUsd: 0.42, resets: 0, stale: false, ageSeconds: 3,
+      window: { nativeSessionId: "ses_oc", since: "2026-10-13T10:00:00.000Z", asOf: "2026-10-13T10:00:03.000Z" },
+      tokens: { input: 12, output: 3 },
+    });
+    expect(line).toContain("client-side estimate (OpenCode step_finish cost)");
+    expect(line).not.toContain("Claude statusline");
+  });
+
+  it("uses the runtime when a reported seat has no source, and labels DSH's no-cost method accurately", async () => {
+    const { costLine } = await import("../src/commands/usage.js");
+    const runtimeOnly = costLine({
+      seatSession: "oc@r", runtime: "opencode", status: "reported", costUsd: 0.1,
+      window: { nativeSessionId: "ses_oc", since: "2026-10-13T10:00:00.000Z", asOf: "2026-10-13T10:00:03.000Z" },
+      tokens: { input: 1, output: 1 },
+    });
+    expect(runtimeOnly).toContain("(OpenCode step_finish cost)");
+    expect(runtimeOnly).not.toContain("Claude statusline");
+
+    const dsh = costLine({
+      seatSession: "dsh@r", runtime: "dsh", status: "no-cost-method",
+      note: "no cost reported by the inspected method (DSH runner reports tokens but no client cost estimate)",
+      window: { nativeSessionId: "session-1", asOf: "2026-10-13T10:00:03.000Z" },
+      tokens: { input: 7, output: 2 },
+    });
+    expect(dsh).toContain("DSH runner reports tokens but no client cost estimate");
+    expect(dsh).not.toContain("Claude statusline");
+    expect(dsh).not.toContain("$");
+  });
+});
+
 describe("rig usage cost: a tiny estimate never reads as zero (OPR.0.7.0.2)", () => {
   it("prints <$0.01 below half a cent, rounds normally above, and keeps an exact reported zero", async () => {
     const { formatUsd, costLine } = await import("../src/commands/usage.js");
@@ -203,7 +241,9 @@ describe("rig usage cost: a tiny estimate never reads as zero (OPR.0.7.0.2)", ()
     expect(formatUsd(0.005)).toBe("$0.01");
     expect(formatUsd(1.234)).toBe("$1.23");
     expect(formatUsd(0)).toBe("$0.00");
-    const line = costLine({ seatSession: "dev@r", status: "reported", costUsd: 0.0003, resets: 0, stale: false, ageSeconds: 5,
+    const line = costLine({ seatSession: "dev@r", runtime: "claude-code", status: "reported",
+      kind: "client-side estimate", source: "Claude statusline cost.total_cost_usd",
+      costUsd: 0.0003, resets: 0, stale: false, ageSeconds: 5,
       window: { nativeSessionId: "s1", since: "2026-10-13T10:00:00.000Z", asOf: "2026-10-13T10:00:05.000Z" }, tokens: { input: 1, output: 1 } });
     expect(line).toContain("<$0.01 client-side estimate");
     expect(line).not.toContain("$0.00");

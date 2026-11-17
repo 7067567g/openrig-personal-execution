@@ -11,6 +11,8 @@ export interface CliAgentSeatPaths {
     runnerStatePath: string;
 }
 export declare function cliAgentSeatPaths(stateRoot: string, sessionName: string): CliAgentSeatPaths;
+/** Per-seat token/cost snapshot written by the runner after each usage event. */
+export declare function cliAgentUsagePath(stateRoot: string, sessionName: string): string;
 export interface CliAgentBudgetSidecar {
     enforced: true;
     /** Present only when the turn was terminated by a budget. */

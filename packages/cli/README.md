@@ -1,5 +1,9 @@
 # OpenRig
 
+> 本仓库是本地/私有的 `openrig-local` 源码线（未配置 remote），不是公开上游 `mvschwarz/openrig`；面向用户的 OpenRig 文档与最新误读、内存安全说明发布在 [7067567g/openrig-custom-complete-usage](https://github.com/7067567g/openrig-custom-complete-usage)。
+> **文档地图：** 开发入口见 [DOCS-MAP.md](DOCS-MAP.md)；跨仓总图见 [../../deepseek-知识库/workflow-group/docs/openrig/README.md](../../deepseek-知识库/workflow-group/docs/openrig/README.md)。
+> **改道：** `packages/cli/README.md` 只是包内落地页副本，**不是项目入口**；`var/openrig-archive/**` 是归档证据，**不是现行规则**。
+
 [![npm version](https://img.shields.io/npm/v/@openrig-local/cli)](https://www.npmjs.com/package/@openrig-local/cli) [![npm downloads](https://img.shields.io/npm/dw/@openrig-local/cli)](https://www.npmjs.com/package/@openrig-local/cli) [![License: Apache 2.0](https://img.shields.io/github/license/mvschwarz/openrig)](LICENSE) [![GitHub stars](https://img.shields.io/github/stars/mvschwarz/openrig?style=social)](https://github.com/mvschwarz/openrig/stargazers)
 
 A harness wraps a model. A rig wraps your harnesses. Define your agent team in YAML, boot it with one command. Claude Code and Codex in the same rig, managed as one system.

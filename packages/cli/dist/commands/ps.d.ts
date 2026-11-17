@@ -16,6 +16,14 @@ interface NodeEntry {
     nodeKind: "agent" | "infrastructure";
     runtime: string | null;
     model: string | null;
+    /** Effective permission-policy REF (member ref > rig ref), or null. */
+    permissionPolicy?: string | null;
+    permissionPolicySource?: "node" | "rig" | null;
+    /** Persisted effective launch posture; "unknown" when no provenance is attached. */
+    launchPosture?: "floor" | "full_bypass" | "auto" | "unknown";
+    launchPostureSource?: "node" | "rig" | null;
+    /** Persisted rig-level non-interruptive choice; null = unknown (old daemon/schema). */
+    nonInterruptive?: boolean | null;
     sessionStatus: string | null;
     intentionallyStopped?: boolean;
     startupStatus: "pending" | "ready" | "attention_required" | "failed" | null;
@@ -142,6 +150,7 @@ export declare function validatePsLadder(opts: PsCliOptions, callerRig: string |
 /** One line per community agent app seat: what OpenRig knows about it, and what it doesn't. */
 export declare function formatAgentAppLine(seat: string, app: NonNullable<NodeEntry["agentApp"]>): string;
 export declare function formatDeclaredModel(model: string | null | undefined): string;
+export declare function formatNonInterruptive(value: boolean | null | undefined): "true" | "false" | "unknown";
 export declare function compactNodeProjection(nodes: NodeEntry[]): Array<Record<string, unknown>>;
 /**
  * `rig ps` — the consolidated fleet map + explicit disclosure ladder.

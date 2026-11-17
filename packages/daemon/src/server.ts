@@ -143,6 +143,7 @@ import type { RigLifecycleService } from "./domain/rig-lifecycle-service.js";
 import { seatRoutes } from "./routes/seat.js";
 import { createRouteTimingMiddleware } from "./domain/route-timing-recorder.js";
 import { browserBoundary, type BrowserBoundaryOptions } from "./middleware/browser-boundary.js";
+import { isLoopbackBind, mutationAuthMiddleware } from "./middleware/auth-bearer-token.js";
 
 export interface AppDeps {
   proofSourceWatch?: import("./domain/proof/source-watch.js").ProofSourceWatch;
@@ -666,6 +667,19 @@ export function createApp(deps: AppDeps): Hono {
   // error, never forwarding them. Absent/local host param falls through to
   // the existing handlers untouched (the FR-2 zero-regression negative).
   app.use("/api/*", hostReadThrough());
+
+  // Core write admission: one source-aware bearer/loopback gate for every
+  // mutating /api request. `bindPlan.hosts` decides whether the daemon is
+  // reachable beyond loopback; the accepted socket peer decides whether THIS
+  // request is local. Route-specific tokens stay scoped to their own routes.
+  app.use("/api/*", mutationAuthMiddleware({
+    operatorBearerToken: deps.missionControlBearerToken ?? null,
+    terminalBearerToken: deps.terminalBearerToken ?? null,
+    activityHookToken: deps.activityHookToken ?? null,
+    nonLoopbackBound: deps.bindPlan
+      ? deps.bindPlan.hosts.some((host) => !isLoopbackBind(host))
+      : false,
+  }));
 
   app.get("/healthz", (c) => {
     // OPR.0.4.3.21 — enrich the health surface with event-loop wedge evidence

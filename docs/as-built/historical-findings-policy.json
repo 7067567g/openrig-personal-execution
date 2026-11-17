@@ -1,0 +1,1388 @@
+{
+  "schemaVersion": 1,
+  "source": "workflow-group/runs/openrig-completion-round-20261116/reports/HISTORICAL-FINDINGS.json",
+  "generatedAt": "2026-11-17",
+  "policy": "Every finding is explicitly mapped to a D01-D25 defense or explicitly deferred with a decisionId; no silent unmounted findings. disposition/mapping/class, declared counts, and every acceptanceTestId are machine-validated against the embedded 57-id acceptance inventory; adopted rows require a known test or an explicit accepted-risk disposition.",
+  "counts": {
+    "D02": 2,
+    "D03": 2,
+    "D04": 5,
+    "D06": 4,
+    "D07": 1,
+    "D08": 3,
+    "D10": 1,
+    "D11": 8,
+    "D12": 5,
+    "D14": 32,
+    "D15": 13,
+    "D16": 2,
+    "D18": 2,
+    "D19": 1,
+    "D20": 2,
+    "D21": 2,
+    "D22": 10,
+    "DEFERRED": 11
+  },
+  "findings": [
+    {
+      "findingId": "HF-001",
+      "severity": "S2",
+      "disposition": "adopt",
+      "findingClass": "design_gap",
+      "acceptanceTestId": "AT-DESIGN-INTERFACE-01",
+      "implementationAnchor": "openrig-run resume",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D11"
+      }
+    },
+    {
+      "findingId": "HF-002",
+      "severity": "S1",
+      "disposition": "adopt",
+      "findingClass": "unimplemented",
+      "acceptanceTestId": "AT-DESIGN-CONTINUITY-01",
+      "implementationAnchor": "openrig-run resume continuity-plan",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D15"
+      }
+    },
+    {
+      "findingId": "HF-003",
+      "severity": "S1",
+      "disposition": "adopt",
+      "findingClass": "design_gap",
+      "acceptanceTestId": "AT-DESIGN-CONTINUITY-02",
+      "implementationAnchor": "CONTINUITY-PLAN schema + restoreOutcome assertion",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D11"
+      }
+    },
+    {
+      "findingId": "HF-004",
+      "severity": "S1",
+      "disposition": "adopt",
+      "findingClass": "design_gap",
+      "acceptanceTestId": "AT-DESIGN-COMPACTION-01",
+      "implementationAnchor": "runtime × action support matrix",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D15"
+      }
+    },
+    {
+      "findingId": "HF-005",
+      "severity": "S1",
+      "disposition": "adopt",
+      "findingClass": "unimplemented",
+      "acceptanceTestId": "AT-DESIGN-MANIFEST-01",
+      "implementationAnchor": "RUN-MANIFEST schema + partial evidence on failure",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D11"
+      }
+    },
+    {
+      "findingId": "HF-006",
+      "severity": "S1",
+      "disposition": "adopt",
+      "findingClass": "observed_defect",
+      "acceptanceTestId": "AT-DESIGN-START-01",
+      "implementationAnchor": "supervisor start contract",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D12"
+      }
+    },
+    {
+      "findingId": "HF-007",
+      "severity": "S1",
+      "disposition": "adopt",
+      "findingClass": "observed_defect",
+      "acceptanceTestId": "AT-DESIGN-STATE-MACHINE-01",
+      "implementationAnchor": "launch state machine",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D15"
+      }
+    },
+    {
+      "findingId": "HF-008",
+      "severity": "S2",
+      "disposition": "adopt",
+      "findingClass": "meta_requirement",
+      "acceptanceTestId": "AT-DESIGN-AUTOMATION-01",
+      "implementationAnchor": "AUTOMATION-BOUNDARY.md",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D18"
+      }
+    },
+    {
+      "findingId": "HF-009",
+      "severity": "S2",
+      "disposition": "adopt",
+      "findingClass": "meta_requirement",
+      "acceptanceTestId": "AT-DESIGN-SOURCE-COVERAGE-01",
+      "implementationAnchor": "plan_lint.py --phase completion",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D14"
+      }
+    },
+    {
+      "findingId": "HF-010",
+      "severity": "S2",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-INHERIT-01",
+      "implementationAnchor": "N-LIF-01 + archive-gate + evidence_run",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D14"
+      }
+    },
+    {
+      "findingId": "HF-011",
+      "severity": "S2",
+      "disposition": "adopt",
+      "findingClass": "meta_requirement",
+      "acceptanceTestId": "AT-DESIGN-E2E-01",
+      "implementationAnchor": "certification matrix",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D15"
+      }
+    },
+    {
+      "findingId": "HF-012",
+      "severity": "S3",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-INHERIT-02",
+      "implementationAnchor": "brief scope correction",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D16"
+      }
+    },
+    {
+      "findingId": "HF-013",
+      "severity": "S2",
+      "disposition": "adopt",
+      "findingClass": "unimplemented",
+      "acceptanceTestId": "AT-DESIGN-AUTOMATION-01",
+      "implementationAnchor": "L0 argv classification in bin-wrapper.run()",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D11"
+      }
+    },
+    {
+      "findingId": "HF-014",
+      "severity": "S1",
+      "disposition": "adopt",
+      "findingClass": "design_gap",
+      "acceptanceTestId": "AT-DESIGN-STATE-MACHINE-01",
+      "implementationAnchor": "launch state machine",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D08"
+      }
+    },
+    {
+      "findingId": "HF-015",
+      "severity": "S2",
+      "disposition": "adopt",
+      "findingClass": "unimplemented",
+      "acceptanceTestId": "AT-DESIGN-STATE-MACHINE-01",
+      "implementationAnchor": "run-context propagation into auto-start",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D03"
+      }
+    },
+    {
+      "findingId": "HF-016",
+      "severity": "S2",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-COMPACTION-01",
+      "implementationAnchor": "runtime × action support matrix",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D06"
+      }
+    },
+    {
+      "findingId": "HF-017",
+      "severity": "S3",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-COMPACTION-01",
+      "implementationAnchor": "honest-unknown in IO manifest",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D14"
+      }
+    },
+    {
+      "findingId": "HF-018",
+      "severity": "S2",
+      "disposition": "adopt",
+      "findingClass": "observed_defect",
+      "acceptanceTestId": "AT-DESIGN-STATE-MACHINE-01",
+      "implementationAnchor": "supervisor check/start error contract",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D07"
+      }
+    },
+    {
+      "findingId": "HF-019",
+      "severity": "S1",
+      "disposition": "adopt",
+      "findingClass": "design_gap",
+      "acceptanceTestId": "AT-DESIGN-RESTORE-OUTCOME-01",
+      "implementationAnchor": "CONTINUITY-PLAN + restoreOutcome assertion",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D10"
+      }
+    },
+    {
+      "findingId": "HF-020",
+      "severity": "S2",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-HANDOVER-01",
+      "implementationAnchor": "runtime × action matrix (handover row)",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D15"
+      }
+    },
+    {
+      "findingId": "HF-021",
+      "severity": "S2",
+      "disposition": "adopt",
+      "findingClass": "design_gap",
+      "acceptanceTestId": "AT-DESIGN-SUPERVISOR-01",
+      "implementationAnchor": "supervisor vs rig start boundary",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D02"
+      }
+    },
+    {
+      "findingId": "HF-022",
+      "severity": "S1",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-CONTINUITY-01",
+      "implementationAnchor": "resume vs start-a-new-team split",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D15"
+      }
+    },
+    {
+      "findingId": "HF-023",
+      "severity": "S2",
+      "disposition": "adopt",
+      "findingClass": "unimplemented",
+      "acceptanceTestId": "AT-DESIGN-AUTOMATION-01",
+      "implementationAnchor": "L0 verb deny-list (6 entry verbs)",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D02"
+      }
+    },
+    {
+      "findingId": "HF-024",
+      "severity": "S1",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-CONTINUITY-02",
+      "implementationAnchor": "CONTINUITY-PLAN schema + restoreOutcome assertion",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D15"
+      }
+    },
+    {
+      "findingId": "HF-025",
+      "severity": "S2",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-HANDOVER-01",
+      "implementationAnchor": "handover evidence row in RUN-MANIFEST",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D12"
+      }
+    },
+    {
+      "findingId": "HF-026",
+      "severity": "S2",
+      "disposition": "defer",
+      "findingClass": "unimplemented",
+      "acceptanceTestId": "AT-DESIGN-AUTOMATION-01",
+      "implementationAnchor": "HTTP admission as P1 (not P0)",
+      "mapping": {
+        "kind": "deferred",
+        "decisionId": "H-02",
+        "reason": "HTTP admission is explicitly deferred to P1; no runtime defense object in D01-D25 this round (decision H-02)",
+        "targetStage": "S4"
+      }
+    },
+    {
+      "findingId": "HF-027",
+      "severity": "S1",
+      "disposition": "adopt",
+      "findingClass": "design_gap",
+      "acceptanceTestId": "AT-DESIGN-READY-01",
+      "implementationAnchor": "restoreOutcome ≠ startupStatus",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D15"
+      }
+    },
+    {
+      "findingId": "HF-028",
+      "severity": "S2",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-COMPACTION-01",
+      "implementationAnchor": "runtime × action support matrix",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D18"
+      }
+    },
+    {
+      "findingId": "HF-029",
+      "severity": "S2",
+      "disposition": "adopt",
+      "findingClass": "design_gap",
+      "acceptanceTestId": "AT-DESIGN-READY-01",
+      "implementationAnchor": "do not build continuity on unread axes",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D15"
+      }
+    },
+    {
+      "findingId": "HF-030",
+      "severity": "S1",
+      "disposition": "adopt",
+      "findingClass": "design_gap",
+      "acceptanceTestId": "AT-DESIGN-CONTINUITY-03",
+      "implementationAnchor": "continuity must not be inferred from rig.yaml fields",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D15"
+      }
+    },
+    {
+      "findingId": "HF-031",
+      "severity": "S1",
+      "disposition": "adopt",
+      "findingClass": "observed_defect",
+      "acceptanceTestId": "AT-DESIGN-READY-01",
+      "implementationAnchor": "check must report per-seat restoreOutcome",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D11"
+      }
+    },
+    {
+      "findingId": "HF-032",
+      "severity": "S1",
+      "disposition": "adopt",
+      "findingClass": "unimplemented",
+      "acceptanceTestId": "AT-DESIGN-MANIFEST-01",
+      "implementationAnchor": "RUN-MANIFEST + partial evidence on failure",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D12"
+      }
+    },
+    {
+      "findingId": "HF-033",
+      "severity": "S2",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-PREFLIGHT-01",
+      "implementationAnchor": "supervisor precheck reuse",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D21"
+      }
+    },
+    {
+      "findingId": "HF-034",
+      "severity": "S2",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-EVIDENCE-01",
+      "implementationAnchor": "extend evidence schema, do not fork runner",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D14"
+      }
+    },
+    {
+      "findingId": "HF-035",
+      "severity": "S1",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-MANIFEST-01",
+      "implementationAnchor": "bridge is the run identity carrier",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D14"
+      }
+    },
+    {
+      "findingId": "HF-036",
+      "severity": "S1",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-CONTINUITY-01",
+      "implementationAnchor": "inherit the four-step priority",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D15"
+      }
+    },
+    {
+      "findingId": "HF-037",
+      "severity": "S1",
+      "disposition": "adopt",
+      "findingClass": "design_gap",
+      "acceptanceTestId": "AT-DESIGN-ARCHIVE-01",
+      "implementationAnchor": "archive-gate before stop/teardown",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D14"
+      }
+    },
+    {
+      "findingId": "HF-038",
+      "severity": "S2",
+      "disposition": "adopt",
+      "findingClass": "observed_defect",
+      "acceptanceTestId": "AT-DESIGN-START-01",
+      "implementationAnchor": "supervisor start must match the documented sequence",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D12"
+      }
+    },
+    {
+      "findingId": "HF-039",
+      "severity": "S2",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-E2E-01",
+      "implementationAnchor": "certification matrix (readiness ≠ E2E)",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D11"
+      }
+    },
+    {
+      "findingId": "HF-040",
+      "severity": "S2",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-SCOPE-01",
+      "implementationAnchor": "isolation is a precondition of the supervisor",
+      "mapping": {
+        "kind": "deferred",
+        "reason": "no minimal runtime defense object in D01-D25; explicit historical/decision deferral",
+        "decisionId": "H-03",
+        "targetStage": "S4"
+      }
+    },
+    {
+      "findingId": "HF-041",
+      "severity": "S2",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-CLOSEOUT-01",
+      "implementationAnchor": "close_round authority matrix",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D14"
+      }
+    },
+    {
+      "findingId": "HF-042",
+      "severity": "S1",
+      "disposition": "adopt",
+      "findingClass": "accepted_risk",
+      "acceptanceTestId": "AT-DESIGN-HOPS-01",
+      "implementationAnchor": "hop budget as a design constraint",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D22"
+      }
+    },
+    {
+      "findingId": "HF-043",
+      "severity": "S1",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-AUTOMATION-01",
+      "implementationAnchor": "reuse observed baseline in the contract",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D08"
+      }
+    },
+    {
+      "findingId": "HF-044",
+      "severity": "S1",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-TREE-SCHEMA-01",
+      "implementationAnchor": "EXECUTION-TREE-v2 field contract",
+      "mapping": {
+        "kind": "deferred",
+        "reason": "no minimal runtime defense object in D01-D25; explicit historical/decision deferral",
+        "decisionId": "H-06",
+        "targetStage": "S4"
+      }
+    },
+    {
+      "findingId": "HF-045",
+      "severity": "S1",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-AUTOMATION-01",
+      "implementationAnchor": "AUTOMATION-BOUNDARY layer table",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D08"
+      }
+    },
+    {
+      "findingId": "HF-046",
+      "severity": "S2",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-SCOPE-01",
+      "implementationAnchor": "P0 minimality in EXECUTION-TREE-v2",
+      "mapping": {
+        "kind": "deferred",
+        "reason": "no minimal runtime defense object in D01-D25; explicit historical/decision deferral",
+        "decisionId": "H-02",
+        "targetStage": "S4"
+      }
+    },
+    {
+      "findingId": "HF-047",
+      "severity": "S1",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-ARCHIVE-01",
+      "implementationAnchor": "stop order in supervisor contract",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D16"
+      }
+    },
+    {
+      "findingId": "HF-048",
+      "severity": "S1",
+      "disposition": "adopt",
+      "findingClass": "design_gap",
+      "acceptanceTestId": "AT-DESIGN-QA-HISTORY-01",
+      "implementationAnchor": "history QA must test executability, not prose",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D06"
+      }
+    },
+    {
+      "findingId": "HF-049",
+      "severity": "S2",
+      "disposition": "adopt",
+      "findingClass": "design_gap",
+      "acceptanceTestId": "AT-DESIGN-QA-HISTORY-02",
+      "implementationAnchor": "QA must re-run AT commands in the target cwd",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D22"
+      }
+    },
+    {
+      "findingId": "HF-050",
+      "severity": "S2",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-QA-HISTORY-03",
+      "implementationAnchor": "structure counters must be script-derived",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D22"
+      }
+    },
+    {
+      "findingId": "HF-051",
+      "severity": "S2",
+      "disposition": "adopt",
+      "findingClass": "accepted_risk",
+      "acceptanceTestId": "AT-DESIGN-INTEGRITY-01",
+      "implementationAnchor": "closeout immutability + revision channel",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D14"
+      }
+    },
+    {
+      "findingId": "HF-052",
+      "severity": "S1",
+      "disposition": "defer",
+      "findingClass": "accepted_risk",
+      "acceptanceTestId": "AT-DESIGN-HUMAN-GATE-01",
+      "implementationAnchor": "HUMAN-DECISIONS provisional defaults",
+      "mapping": {
+        "kind": "deferred",
+        "reason": "explicit accepted risk: QG-1..QG-7 provisional defaults are deferred to S6 under H-01; no runtime defense object in D01-D25",
+        "decisionId": "H-01",
+        "targetStage": "S6"
+      }
+    },
+    {
+      "findingId": "HF-053",
+      "severity": "S1",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-INTEGRITY-02",
+      "implementationAnchor": "honest not-implemented section",
+      "mapping": {
+        "kind": "deferred",
+        "reason": "no minimal runtime defense object in D01-D25; explicit historical/decision deferral",
+        "decisionId": "H-01",
+        "targetStage": "S6"
+      }
+    },
+    {
+      "findingId": "HF-054",
+      "severity": "S2",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-AUTOMATION-02",
+      "implementationAnchor": "automation boundary doctrine",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D14"
+      }
+    },
+    {
+      "findingId": "HF-055",
+      "severity": "S1",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-AUTOMATION-02",
+      "implementationAnchor": "supervisor fail-closed point list",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D14"
+      }
+    },
+    {
+      "findingId": "HF-056",
+      "severity": "S2",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-AUTOMATION-02",
+      "implementationAnchor": "strength ladder in boundary doc",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D22"
+      }
+    },
+    {
+      "findingId": "HF-057",
+      "severity": "S1",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-QA-HISTORY-04",
+      "implementationAnchor": "failed edge preserves prior verdict",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D14"
+      }
+    },
+    {
+      "findingId": "HF-058",
+      "severity": "S2",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-AUTOMATION-03",
+      "implementationAnchor": "evidence seeds → acceptance tests",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D14"
+      }
+    },
+    {
+      "findingId": "HF-059",
+      "severity": "S1",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-INTEGRITY-02",
+      "implementationAnchor": "honest scope statement",
+      "mapping": {
+        "kind": "deferred",
+        "reason": "no minimal runtime defense object in D01-D25; explicit historical/decision deferral",
+        "decisionId": "H-01",
+        "targetStage": "S6"
+      }
+    },
+    {
+      "findingId": "HF-060",
+      "severity": "S2",
+      "disposition": "adopt",
+      "findingClass": "accepted_risk",
+      "acceptanceTestId": "AT-DESIGN-HUMAN-GATE-01",
+      "implementationAnchor": "HUMAN-DECISIONS scope answer",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D11"
+      }
+    },
+    {
+      "findingId": "HF-061",
+      "severity": "S2",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-QA-HISTORY-05",
+      "implementationAnchor": "quote-level re-scan in history QA",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D22"
+      }
+    },
+    {
+      "findingId": "HF-062",
+      "severity": "S1",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-AUTOMATION-03",
+      "implementationAnchor": "mechanism over prose",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D21"
+      }
+    },
+    {
+      "findingId": "HF-063",
+      "severity": "S1",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-CONTINUITY-02",
+      "implementationAnchor": "closeout continuity row",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D14"
+      }
+    },
+    {
+      "findingId": "HF-064",
+      "severity": "S2",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-HUMAN-GATE-01",
+      "implementationAnchor": "do not inherit inapplicable decisions",
+      "mapping": {
+        "kind": "deferred",
+        "reason": "no minimal runtime defense object in D01-D25; explicit historical/decision deferral",
+        "decisionId": "H-01",
+        "targetStage": "S6"
+      }
+    },
+    {
+      "findingId": "HF-065",
+      "severity": "S1",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-EVIDENCE-01",
+      "implementationAnchor": "evidence rules in IO manifest",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D14"
+      }
+    },
+    {
+      "findingId": "HF-066",
+      "severity": "S2",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-INTEGRITY-02",
+      "implementationAnchor": "recommendation ≠ implementation",
+      "mapping": {
+        "kind": "deferred",
+        "reason": "no minimal runtime defense object in D01-D25; explicit historical/decision deferral",
+        "decisionId": "H-01",
+        "targetStage": "S6"
+      }
+    },
+    {
+      "findingId": "HF-067",
+      "severity": "S1",
+      "disposition": "adopt",
+      "findingClass": "design_gap",
+      "acceptanceTestId": "AT-DESIGN-START-02",
+      "implementationAnchor": "entry-owner readiness gate",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D04"
+      }
+    },
+    {
+      "findingId": "HF-068",
+      "severity": "S2",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-QA-HISTORY-05",
+      "implementationAnchor": "grep-based honesty check",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D22"
+      }
+    },
+    {
+      "findingId": "HF-069",
+      "severity": "S1",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-GATE-ORDER-01",
+      "implementationAnchor": "gate order + negative matrix in v2",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D14"
+      }
+    },
+    {
+      "findingId": "HF-070",
+      "severity": "S1",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-GATE-ORDER-01",
+      "implementationAnchor": "reuse the shipped gates",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D14"
+      }
+    },
+    {
+      "findingId": "HF-071",
+      "severity": "S2",
+      "disposition": "adopt",
+      "findingClass": "accepted_risk",
+      "acceptanceTestId": "AT-DESIGN-DUAL-FINAL-01",
+      "implementationAnchor": "single FINAL path + closeout resolved-path rule",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D14"
+      }
+    },
+    {
+      "findingId": "HF-072",
+      "severity": "S1",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-BASELINE-01",
+      "implementationAnchor": "baseline semantics in RUN-MANIFEST",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D14"
+      }
+    },
+    {
+      "findingId": "HF-073",
+      "severity": "S2",
+      "disposition": "adopt",
+      "findingClass": "design_gap",
+      "acceptanceTestId": "AT-DESIGN-DUAL-FINAL-01",
+      "implementationAnchor": "closeout ordering rule",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D14"
+      }
+    },
+    {
+      "findingId": "HF-074",
+      "severity": "S1",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-SUPERVISOR-02",
+      "implementationAnchor": "check/start rc table in contract",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D04"
+      }
+    },
+    {
+      "findingId": "HF-075",
+      "severity": "S1",
+      "disposition": "adopt",
+      "findingClass": "accepted_risk",
+      "acceptanceTestId": "AT-DESIGN-E2E-01",
+      "implementationAnchor": "verification_level enum (static/fixture/live)",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D04"
+      }
+    },
+    {
+      "findingId": "HF-076",
+      "severity": "S3",
+      "disposition": "adopt",
+      "findingClass": "accepted_risk",
+      "acceptanceTestId": "AT-DESIGN-DUAL-FINAL-01",
+      "implementationAnchor": "one canonical FINAL path",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D14"
+      }
+    },
+    {
+      "findingId": "HF-077",
+      "severity": "S2",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-INTEGRITY-03",
+      "implementationAnchor": "archive superseded receipts",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D14"
+      }
+    },
+    {
+      "findingId": "HF-078",
+      "severity": "S1",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-RENDER-DRIFT-01",
+      "implementationAnchor": "specialization over re-render",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D14"
+      }
+    },
+    {
+      "findingId": "HF-079",
+      "severity": "S2",
+      "disposition": "adopt",
+      "findingClass": "design_gap",
+      "acceptanceTestId": "AT-DESIGN-CLOSEOUT-02",
+      "implementationAnchor": "closeout must attest resolved path",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D06"
+      }
+    },
+    {
+      "findingId": "HF-080",
+      "severity": "S2",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-WORKFLOW-INVARIANTS-01",
+      "implementationAnchor": "G-WF probe in gate order",
+      "mapping": {
+        "kind": "deferred",
+        "reason": "no minimal runtime defense object in D01-D25; explicit historical/decision deferral",
+        "decisionId": "H-06",
+        "targetStage": "S4"
+      }
+    },
+    {
+      "findingId": "HF-081",
+      "severity": "S1",
+      "disposition": "adopt",
+      "findingClass": "accepted_risk",
+      "acceptanceTestId": "AT-DESIGN-RENDER-DRIFT-01",
+      "implementationAnchor": "accept-and-record pattern",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D11"
+      }
+    },
+    {
+      "findingId": "HF-082",
+      "severity": "S2",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-CLOSEOUT-01",
+      "implementationAnchor": "close preconditions checklist",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D14"
+      }
+    },
+    {
+      "findingId": "HF-083",
+      "severity": "S2",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-QA-HISTORY-06",
+      "implementationAnchor": "numeric drift adjudication",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D22"
+      }
+    },
+    {
+      "findingId": "HF-084",
+      "severity": "S1",
+      "disposition": "adopt",
+      "findingClass": "observed_defect",
+      "acceptanceTestId": "AT-DESIGN-SEAT-WRITE-01",
+      "implementationAnchor": "seat write path in IO manifest",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D14"
+      }
+    },
+    {
+      "findingId": "HF-085",
+      "severity": "S3",
+      "disposition": "adopt",
+      "findingClass": "accepted_risk",
+      "acceptanceTestId": "AT-DESIGN-INTEGRITY-04",
+      "implementationAnchor": "one artifact one canonical name",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D14"
+      }
+    },
+    {
+      "findingId": "HF-086",
+      "severity": "S1",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-SEAT-WRITE-01",
+      "implementationAnchor": "home durability + staging",
+      "mapping": {
+        "kind": "deferred",
+        "reason": "no minimal runtime defense object in D01-D25; explicit historical/decision deferral",
+        "decisionId": "H-03",
+        "targetStage": "S4"
+      }
+    },
+    {
+      "findingId": "HF-087",
+      "severity": "S1",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-CONTINUITY-03",
+      "implementationAnchor": "token provenance in continuity plan",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D12"
+      }
+    },
+    {
+      "findingId": "HF-088",
+      "severity": "S1",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-E2E-01",
+      "implementationAnchor": "real resume evidence vs fixture",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D14"
+      }
+    },
+    {
+      "findingId": "HF-089",
+      "severity": "S1",
+      "disposition": "adopt",
+      "findingClass": "observed_defect",
+      "acceptanceTestId": "AT-DESIGN-TOKEN-JOIN-01",
+      "implementationAnchor": "attribution rule in IO manifest",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D14"
+      }
+    },
+    {
+      "findingId": "HF-090",
+      "severity": "S1",
+      "disposition": "adopt",
+      "findingClass": "observed_defect",
+      "acceptanceTestId": "AT-DESIGN-TOKEN-READSURFACE-01",
+      "implementationAnchor": "cost/usage evidence is not available yet",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D14"
+      }
+    },
+    {
+      "findingId": "HF-091",
+      "severity": "S2",
+      "disposition": "adopt",
+      "findingClass": "observed_defect",
+      "acceptanceTestId": "AT-DESIGN-TOKEN-READSURFACE-01",
+      "implementationAnchor": "extend or bypass the existing consumer",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D04"
+      }
+    },
+    {
+      "findingId": "HF-092",
+      "severity": "S2",
+      "disposition": "adopt",
+      "findingClass": "accepted_risk",
+      "acceptanceTestId": "AT-DESIGN-INTEGRITY-01",
+      "implementationAnchor": "digest chain + revision record",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D14"
+      }
+    },
+    {
+      "findingId": "HF-093",
+      "severity": "S2",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-BASELINE-01",
+      "implementationAnchor": "baseline = HEAD + status + diff sha256",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D14"
+      }
+    },
+    {
+      "findingId": "HF-094",
+      "severity": "S1",
+      "disposition": "adopt",
+      "findingClass": "observed_defect",
+      "acceptanceTestId": "AT-DESIGN-TOKEN-JOIN-01",
+      "implementationAnchor": "unique-current-session view",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D15"
+      }
+    },
+    {
+      "findingId": "HF-095",
+      "severity": "S1",
+      "disposition": "adopt",
+      "findingClass": "observed_defect",
+      "acceptanceTestId": "AT-DESIGN-INTEGRITY-05",
+      "implementationAnchor": "certificate must bind to the verified object",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D04"
+      }
+    },
+    {
+      "findingId": "HF-096",
+      "severity": "S1",
+      "disposition": "adopt",
+      "findingClass": "design_gap",
+      "acceptanceTestId": "AT-DESIGN-DEADLINE-01",
+      "implementationAnchor": "explicit pacing class, no silent default",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D19"
+      }
+    },
+    {
+      "findingId": "HF-097",
+      "severity": "S2",
+      "disposition": "adopt",
+      "findingClass": "accepted_risk",
+      "acceptanceTestId": "AT-DESIGN-INTEGRITY-03",
+      "implementationAnchor": "pre-edit snapshot rule",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D14"
+      }
+    },
+    {
+      "findingId": "HF-098",
+      "severity": "S2",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-CONTEXT-BUDGET-01",
+      "implementationAnchor": "context budget rule",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D14"
+      }
+    },
+    {
+      "findingId": "HF-099",
+      "severity": "S1",
+      "disposition": "adopt",
+      "findingClass": "accepted_risk",
+      "acceptanceTestId": "AT-DESIGN-HUMAN-GATE-02",
+      "implementationAnchor": "no in-run auto rotation",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D15"
+      }
+    },
+    {
+      "findingId": "HF-100",
+      "severity": "S1",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-CONTINUITY-04",
+      "implementationAnchor": "fresh-at-boundary + honest unknown",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D03"
+      }
+    },
+    {
+      "findingId": "HF-101",
+      "severity": "S1",
+      "disposition": "adopt",
+      "findingClass": "observed_defect",
+      "acceptanceTestId": "AT-DESIGN-INTEGRITY-05",
+      "implementationAnchor": "every number carries its capture time",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D22"
+      }
+    },
+    {
+      "findingId": "HF-102",
+      "severity": "S2",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-TOKEN-READSURFACE-01",
+      "implementationAnchor": "runtime-branched schema",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D20"
+      }
+    },
+    {
+      "findingId": "HF-103",
+      "severity": "S2",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-TOKEN-GOV-01",
+      "implementationAnchor": "no hard cap in the design",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D20"
+      }
+    },
+    {
+      "findingId": "HF-104",
+      "severity": "S2",
+      "disposition": "adopt",
+      "findingClass": "design_gap",
+      "acceptanceTestId": "AT-DESIGN-EVIDENCE-02",
+      "implementationAnchor": "audit notes carry both timestamps",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D06"
+      }
+    },
+    {
+      "findingId": "HF-105",
+      "severity": "S1",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-QA-HISTORY-08",
+      "implementationAnchor": "independent negatives + no self-signoff",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D22"
+      }
+    },
+    {
+      "findingId": "HF-106",
+      "severity": "S1",
+      "disposition": "already-covered",
+      "findingClass": "already_covered",
+      "acceptanceTestId": "AT-DESIGN-QA-HISTORY-07",
+      "implementationAnchor": "QA replay matrix",
+      "mapping": {
+        "kind": "defense",
+        "defenseId": "D22"
+      }
+    }
+  ],
+  "acceptanceTestInventory": {
+    "source": "workflow-group/runs/openrig-completion-round-20261116/reports/EXECUTION-TREE-v2.json",
+    "sourceSchema": "acceptanceMap",
+    "sourceSha256": "e01443e5a8c76bd9465b8c9b0cfca043411324d8d249ab90b884c401486d36e9",
+    "testIds": [
+      "AT-DESIGN-INHERIT-01",
+      "AT-DESIGN-INHERIT-02",
+      "AT-DESIGN-HUMAN-GATE-01",
+      "AT-DESIGN-SOURCE-COVERAGE-01",
+      "AT-DESIGN-QA-HISTORY-01",
+      "AT-DESIGN-QA-HISTORY-02",
+      "AT-DESIGN-QA-HISTORY-03",
+      "AT-DESIGN-QA-HISTORY-04",
+      "AT-DESIGN-QA-HISTORY-05",
+      "AT-DESIGN-QA-HISTORY-06",
+      "AT-DESIGN-QA-HISTORY-07",
+      "AT-DESIGN-QA-HISTORY-08",
+      "AT-DESIGN-INTERFACE-01",
+      "AT-DESIGN-START-01",
+      "AT-DESIGN-START-02",
+      "AT-DESIGN-STATE-MACHINE-01",
+      "AT-DESIGN-SUPERVISOR-01",
+      "AT-DESIGN-SUPERVISOR-02",
+      "AT-DESIGN-READY-01",
+      "AT-DESIGN-RESTORE-OUTCOME-01",
+      "AT-DESIGN-DEADLINE-01",
+      "AT-DESIGN-SCOPE-01",
+      "AT-DESIGN-HOPS-01",
+      "AT-DESIGN-AUTOMATION-01",
+      "AT-DESIGN-AUTOMATION-02",
+      "AT-DESIGN-AUTOMATION-03",
+      "AT-DESIGN-PREFLIGHT-01",
+      "AT-DESIGN-EVIDENCE-01",
+      "AT-DESIGN-EVIDENCE-02",
+      "AT-DESIGN-GATE-ORDER-01",
+      "AT-DESIGN-RENDER-DRIFT-01",
+      "AT-DESIGN-TOKEN-GOV-01",
+      "AT-DESIGN-CONTEXT-BUDGET-01",
+      "AT-DESIGN-CONTINUITY-01",
+      "AT-DESIGN-CONTINUITY-02",
+      "AT-DESIGN-CONTINUITY-03",
+      "AT-DESIGN-CONTINUITY-04",
+      "AT-DESIGN-COMPACTION-01",
+      "AT-DESIGN-HANDOVER-01",
+      "AT-DESIGN-ARCHIVE-01",
+      "AT-DESIGN-SEAT-WRITE-01",
+      "AT-DESIGN-HUMAN-GATE-02",
+      "AT-DESIGN-MANIFEST-01",
+      "AT-DESIGN-TOKEN-JOIN-01",
+      "AT-DESIGN-TOKEN-READSURFACE-01",
+      "AT-DESIGN-TREE-SCHEMA-01",
+      "AT-DESIGN-E2E-01",
+      "AT-DESIGN-WORKFLOW-INVARIANTS-01",
+      "AT-DESIGN-CLOSEOUT-01",
+      "AT-DESIGN-CLOSEOUT-02",
+      "AT-DESIGN-DUAL-FINAL-01",
+      "AT-DESIGN-INTEGRITY-01",
+      "AT-DESIGN-INTEGRITY-02",
+      "AT-DESIGN-INTEGRITY-03",
+      "AT-DESIGN-INTEGRITY-04",
+      "AT-DESIGN-INTEGRITY-05",
+      "AT-DESIGN-BASELINE-01"
+    ]
+  },
+  "policyRevision": 2,
+  "revisionNote": "rev2 2026-11-18: fix HF-026 (defer/disposition was mapped to a defense) and HF-052 (adopt/disposition was mapped as deferred with accepted_risk) so disposition and mapping agree; add acceptanceTestInventory (57 AT ids, source sha256) and make counts exact."
+}

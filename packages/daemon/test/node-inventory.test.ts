@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import type Database from "better-sqlite3";
 import { createFullTestDb } from "./helpers/test-app.js";
 import { getNodeInventory, getNodeDetail, getNodeInventoryWithContext, getNodeDetailWithContext } from "../src/domain/node-inventory.js";
+import { RigRepository } from "../src/domain/rig-repository.js";
 import { setDaemonTmuxServer } from "../src/adapters/tmux-server.js";
 import type { RuntimeAdapter } from "../src/domain/runtime-adapter.js";
 import type { ContextUsage } from "../src/domain/types.js";
@@ -104,6 +105,50 @@ describe("Node Inventory Projection", () => {
     expect(entries.find((e) => e.logicalId === "dev.impl")?.nodeId).toBe("node-1");
     expect(entries.map((e) => e.logicalId).sort()).toEqual(["dev.impl", "infra.server"]);
     expect(entries.every((e) => e.podNamespace === "dev")).toBe(true);
+  });
+
+  it("surfaces effective permission policy, launch posture, and rig non-interruptive", () => {
+    seedPodAwareRig(db);
+    const repo = new RigRepository(db);
+    repo.setRigPermissionPolicy("rig-1", "builtin:yolo");
+    repo.setRigPolicyProvenance("rig-1", {
+      origin: "builtin", resolvedTarget: null, declaringDir: null, launchPosture: "full_bypass",
+    });
+    repo.setRigNonInterruptive("rig-1", true);
+    repo.setNodePermissionPolicy("node-2", "builtin:auto");
+    repo.setNodePolicyProvenance("node-2", {
+      origin: "builtin", resolvedTarget: null, declaringDir: null, launchPosture: "auto",
+    });
+
+    const entries = getNodeInventory(db, "rig-1");
+    const nodeOwned = entries.find((e) => e.logicalId === "dev.impl");
+    const rigInherited = entries.find((e) => e.logicalId === "infra.server");
+
+    // node-1 has no member ref -> the rig ref is the effective one.
+    expect(nodeOwned).toMatchObject({
+      permissionPolicy: "builtin:yolo",
+      permissionPolicySource: "rig",
+      launchPosture: "full_bypass",
+      nonInterruptive: true,
+    });
+    // node-2's own member ref wins over the rig ref.
+    expect(rigInherited).toMatchObject({
+      permissionPolicy: "builtin:auto",
+      permissionPolicySource: "node",
+      launchPosture: "auto",
+      nonInterruptive: true,
+    });
+  });
+
+  it("reports unknown rather than inventing posture/non-interruptive when no policy is attached", () => {
+    seedPodAwareRig(db);
+    const [entry] = getNodeInventory(db, "rig-1");
+    expect(entry).toMatchObject({
+      permissionPolicy: null,
+      permissionPolicySource: null,
+      launchPosture: "unknown",
+      nonInterruptive: false,
+    });
   });
 
   // Test 2: Inventory includes correct canonical session names

@@ -77,6 +77,30 @@ export declare class ContextUsageStore {
     }): ContextUsage;
     /** Resolve an explicitly selected native thread, even before its first token count. */
     readCodexTranscriptPath(threadId: string): string | null;
+    /**
+     * Read the OpenCode/DSH runner's per-seat `usage.json` sidecar and normalize it.
+     *
+     * The runner owns the fold (streaming tokens/cost → monotonic totals); this
+     * read surface only maps the snapshot onto `ContextUsage`. `stateDir` is
+     * OPENRIG_HOME, so the sidecar lives at
+     * `OPENRIG_HOME/state/<runtime>/<sanitized-session>/usage.json`.
+     *
+     * Missing file → `missing_sidecar`; unparseable/incompatible sidecar →
+     * `parse_error`. Neither is treated as a zero sample.
+     */
+    readCliAgentAndNormalize(input: {
+        runtime: "opencode" | "dsh";
+        sessionName: string;
+        /** Optional explicit current-tenure fence. The DB-backed resolver below is
+         * the production path; tests and future callers may inject it directly. */
+        occupantGeneration?: string;
+    }): ContextUsage;
+    /** Resolve the live tenure for a seat name without importing SessionRegistry
+     * (the store owns the same DB). Any failure is UNKNOWN, not a fabricated match. */
+    private resolveOccupantGenerationForSession;
+    /** Map a validated runner usage sidecar to the shared context-usage shape.
+     * Missing token components remain null; they are never added as zero. */
+    private normalizeCliAgentUsage;
     /** Normalize raw sidecar data into a ContextUsage record. */
     normalizeSample(raw: SidecarRaw | null): ContextUsage;
     /** Normalize a Codex token_count JSONL event into ContextUsage. */

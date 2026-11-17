@@ -45,6 +45,7 @@ describe("rig start (OPR.0.3.4.1)", () => {
   let server: http.Server;
   let port: number;
   let upBodies: Array<Record<string, unknown>> = [];
+  let seatLaunchBodies: Array<{ seatRef: string; body: Record<string, unknown> }> = [];
   let nodesReads = 0;
   let routes: Record<string, (req: http.IncomingMessage, body: Record<string, unknown>) => Record<string, unknown>>;
 
@@ -100,6 +101,25 @@ describe("rig start (OPR.0.3.4.1)", () => {
           res.end(JSON.stringify(data));
           return;
         }
+        // Per-seat fresh-prime: the same route as `rig seat launch <seat> --fresh`.
+        const seatLaunchMatch = method === "POST" && url.match(/^\/api\/seat\/launch\/([^/]+)$/);
+        if (seatLaunchMatch) {
+          const seatRef = decodeURIComponent(seatLaunchMatch[1]!);
+          seatLaunchBodies.push({ seatRef, body });
+          const handler = routes["/api/seat/launch/:seatRef"];
+          const data = handler ? handler(req, { ...body, _seatRef: seatRef }) : {
+            ok: true,
+            status: "ready",
+            seat: { logicalId: seatRef.slice(0, seatRef.lastIndexOf("@")) },
+            sessionName: seatRef,
+            warnings: [],
+          };
+          const httpStatus = (data as Record<string, unknown>)?._httpStatus as number | undefined;
+          const { _httpStatus: _, ...cleanData } = data as Record<string, unknown>;
+          res.writeHead(httpStatus ?? 200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify(httpStatus ? cleanData : data));
+          return;
+        }
         // Id-based plan preview: POST /api/rigs/:id/up (used by rig start candidate discovery)
         const rigUpMatch = method === "POST" && url.match(/^\/api\/rigs\/([^/]+)\/up$/);
         if (rigUpMatch) {
@@ -123,6 +143,7 @@ describe("rig start (OPR.0.3.4.1)", () => {
 
   beforeEach(() => {
     upBodies = [];
+    seatLaunchBodies = [];
     nodesReads = 0;
     routes = {};
   });
@@ -278,43 +299,78 @@ describe("rig start (OPR.0.3.4.1)", () => {
     await makeCmd().parseAsync(["node", "rig", "start", ...args]);
   });
 
-  // T1 unreadable-status
+  // T1 unreadable-status: --last now fails closed unless explicitly allowed.
   it.each([
     ["an error object instead of the seat list", () => ({ error: "inventory unavailable" })],
     ["an entry with no sessionStatus key", () => [{ logicalId: "dev.seat0", storedSessionStatus: "exited", intentionallyStopped: true }, { logicalId: "dev.seat1", ...S("exited", true) }]],
     ["no inventory route (404)", () => ({ _httpStatus: 404 })],
     ["a non-boolean intentionallyStopped", () => [{ logicalId: "dev.seat0", ...S("exited", true), intentionallyStopped: "yes" }]],
-  ])("--last restores a rig whose seat statuses are unreadable (%s) and warns about it, exit 0", async (_label, nodes) => {
+  ])("--last refuses to restore a rig whose seat statuses are unreadable (%s), exit 1", async (_label, nodes) => {
     const unreadable = rigFixture("unreadable", [S("exited", true), S("exited", true)], { nodes });
     setupStoppedRigs([unreadable, CRASHED]);
     const { logs, exitCode } = await runStart("--last", "--json");
+    expect(appliedRigIds()).toEqual([]);
+    expect(exitCode).toBe(1);
+    const parsed = jsonResult(logs);
+    expect(parsed.status).toBe("blocked");
+    expect(parsed.code).toBe("unknown_stop_intent");
+    expect(parsed.rigs).toEqual(["unreadable"]);
+  });
+
+  it("--last with --allow-unknown-stop restores an unreadable rig and warns", async () => {
+    const unreadable = rigFixture("unreadable", [S("exited", true), S("exited", true)], {
+      nodes: () => ({ error: "inventory unavailable" }),
+    });
+    setupStoppedRigs([unreadable, CRASHED]);
+    const { logs, exitCode } = await runStart("--last", "--allow-unknown-stop", "--json");
     expect(appliedRigIds().sort()).toEqual(["rig-crashed", "rig-unreadable"]);
     expect(exitCode).toBeUndefined();
     const parsed = jsonResult(logs);
     expect(parsed.status).toBe("started");
-    expect(parsed.previewErrors).toBeUndefined();
     expect(parsed.warnings).toEqual([{
       rigId: "rig-unreadable", rigName: "unreadable", code: "seat_status_unreadable",
-      message: "selected for restore because its seat statuses could not be read",
+      message: "restored because its seat statuses could not be read (--allow-unknown-stop)",
     }]);
-    expect(parsed.keptDown).toEqual([]);
-
-    upBodies = [];
-    const human = await runStart("--last");
-    expect(human.exitCode).toBeUndefined();
-    expect(appliedRigIds().sort()).toEqual(["rig-crashed", "rig-unreadable"]);
-    const output = human.logs.join("\n");
-    expect(output).toContain("  unreadable: selected for restore because its seat statuses could not be read");
-    expect(output).not.toContain("crashed: could not read");
   });
 
-  it("--all still restores a rig whose seat statuses are unreadable, without reading them", async () => {
+  it("--plan previews candidates and applies nothing", async () => {
+    setupCandidateRig("my-rig");
+    const { logs, exitCode } = await runStart("--plan", "--json");
+    expect(exitCode).toBeUndefined();
+    expect(appliedRigIds()).toEqual([]);
+    const parsed = jsonResult(logs);
+    expect(parsed.status).toBe("planned");
+    expect(parsed.candidates).toHaveLength(1);
+    expect(parsed.candidates[0].rigName).toBe("my-rig");
+    expect(parsed.candidates[0].intendedActions.length).toBeGreaterThan(0);
+  });
+
+  it("--all fails closed when seat stop intent is unreadable", async () => {
     setupStoppedRigs([rigFixture("unreadable", [S("exited", true)], { nodes: () => ({ error: "inventory unavailable" }) })]);
     const { logs, exitCode } = await runStart("--all", "--json");
+    expect(appliedRigIds()).toEqual([]);
+    expect(exitCode).toBe(1);
+    expect(jsonResult(logs).code).toBe("unknown_stop_intent");
+    expect(nodesReads).toBe(1);
+  });
+
+  it("--all --allow-unknown-stop restores an unreadable rig and warns", async () => {
+    setupStoppedRigs([rigFixture("unreadable", [S("exited", true)], { nodes: () => ({ error: "inventory unavailable" }) })]);
+    const { logs, exitCode } = await runStart("--all", "--allow-unknown-stop", "--json");
     expect(appliedRigIds()).toEqual(["rig-unreadable"]);
     expect(exitCode).toBeUndefined();
-    expect(jsonResult(logs).warnings).toBeUndefined();
-    expect(nodesReads).toBe(0);
+    expect(jsonResult(logs).warnings).toEqual([{
+      rigId: "rig-unreadable", rigName: "unreadable", code: "seat_status_unreadable",
+      message: "restored because its seat statuses could not be read (--allow-unknown-stop)",
+    }]);
+  });
+
+  it("--all --allow-downed does not bypass an unreadable stop intent", async () => {
+    setupStoppedRigs([rigFixture("unreadable", [S("exited", true)], { nodes: () => ({ error: "inventory unavailable" }) })]);
+    const { logs, exitCode } = await runStart("--all", "--allow-downed", "--json");
+    expect(appliedRigIds()).toEqual([]);
+    expect(exitCode).toBe(1);
+    expect(jsonResult(logs).code).toBe("unknown_stop_intent");
   });
 
   // T2 confirmed-deliberate-stop
@@ -402,12 +458,17 @@ describe("rig start (OPR.0.3.4.1)", () => {
     expect(jsonResult(second.logs).keptDown).toEqual([]);
   });
 
-  // T6 all-and-rigs-still-restore
-  it("--all, --rigs and --all --last still restore a rig that was taken down", async () => {
+  // T6 all-downed-safety
+  it("--all excludes intentionally downed rigs; --allow-downed and explicit --rigs can override", async () => {
     setupStoppedRigs([DOWNED, CRASHED]);
     const all = await runStart("--all", "--json");
+    expect(appliedRigIds()).toEqual(["rig-crashed"]);
+    expect(jsonResult(all.logs).keptDown).toEqual([{ rigName: "downed", restoreCommand: "rig start --rigs downed" }]);
+
+    upBodies = [];
+    const allowed = await runStart("--all", "--allow-downed", "--json");
     expect(appliedRigIds().sort()).toEqual(["rig-crashed", "rig-downed"]);
-    expect(jsonResult(all.logs).keptDown).toBeUndefined();
+    expect(jsonResult(allowed.logs).keptDown).toEqual([]);
 
     upBodies = [];
     await runStart("--rigs", "downed");
@@ -415,23 +476,63 @@ describe("rig start (OPR.0.3.4.1)", () => {
 
     upBodies = [];
     const allLast = await runStart("--all", "--last", "--json");
-    expect(appliedRigIds().sort()).toEqual(["rig-crashed", "rig-downed"]);
-    expect(jsonResult(allLast.logs).keptDown).toBeUndefined();
+    expect(appliedRigIds()).toEqual(["rig-crashed"]);
+    expect(jsonResult(allLast.logs).keptDown).toEqual([{ rigName: "downed", restoreCommand: "rig start --rigs downed" }]);
   });
 
-  // T7 last-only-fetch
-  it("reads /nodes only under --last: never for --all, --rigs or the interactive path", async () => {
+  it("--allow-downed without --all exits 1 before any restore", async () => {
+    setupStoppedRigs([DOWNED]);
+    const { logs, exitCode } = await runStart("--allow-downed", "--json");
+    expect(appliedRigIds()).toEqual([]);
+    expect(exitCode).toBe(1);
+    expect(logs.join("\n")).toContain("--allow-downed only applies to --all");
+  });
+
+  it("--all tells the operator how to restore a kept-down rig", async () => {
+    setupStoppedRigs([DOWNED]);
+    const { logs, exitCode } = await runStart("--all");
+    expect(exitCode).toBeUndefined();
+    expect(appliedRigIds()).toEqual([]);
+    const output = logs.join("\n");
+    expect(output).toContain("downed: stopped on purpose");
+    expect(output).toContain("--allow-downed");
+    expect(output).toContain("rig start --rigs downed");
+    expect(output).toContain("No rigs selected for restore.");
+  });
+
+  // T7 intent-sensitive fetch
+  it("reads /nodes only for intent-sensitive modes (--all, --plan, --last), never for --rigs or the interactive path", async () => {
     setupStoppedRigs([DOWNED, CRASHED]);
-    await runStart("--all");
-    expect(nodesReads).toBe(0);
     await runStart("--rigs", "downed");
     expect(nodesReads).toBe(0);
+
+    await runStart("--all");
+    expect(nodesReads).toBe(2);
+
+    nodesReads = 0;
+    await runStart("--plan");
+    expect(nodesReads).toBe(2);
+
+    nodesReads = 0;
     await captureLogs(async () => {
       await makeCmd(async () => false).parseAsync(["node", "rig", "start"]);
     });
     expect(nodesReads).toBe(0);
+
+    nodesReads = 0;
     await runStart("--last");
     expect(nodesReads).toBe(2);
+  });
+
+  it("--plan --all marks a downed rig intentionally_stopped and applies nothing", async () => {
+    setupStoppedRigs([DOWNED, CRASHED]);
+    const { logs, exitCode } = await runStart("--plan", "--all", "--json");
+    expect(exitCode).toBeUndefined();
+    expect(appliedRigIds()).toEqual([]);
+    const parsed = jsonResult(logs);
+    expect(parsed.status).toBe("planned");
+    expect(parsed.candidates.find((c: { rigName: string }) => c.rigName === "downed").status).toBe("intentionally_stopped");
+    expect(parsed.keptDown).toEqual([{ rigName: "downed", restoreCommand: "rig start --rigs downed" }]);
   });
 
   // T8 pure-exited-restores
@@ -528,6 +629,7 @@ describe("rig start (OPR.0.3.4.1)", () => {
     const output = logs.join("\n");
     expect(output).toContain("tokenless-rig");
     expect(output).toContain("awaiting-decision");
+    expect(output).toContain("rig seat launch dev.impl@tokenless-rig --fresh --reason");
     const applyBodies = upBodies.filter((b) => b.plan !== true);
     expect(applyBodies.length).toBeGreaterThanOrEqual(1);
   });
@@ -696,6 +798,7 @@ describe("rig start (OPR.0.3.4.1)", () => {
       { id: "rig-2", name: "foo", nodeCount: 1, lifecycleState: "detached" },
     ];
     routes["/api/rigs/:id"] = () => ({ sessions: [] });
+    routes["/api/rigs/:id/nodes"] = () => [{ logicalId: "w", sessionStatus: "detached", intentionallyStopped: false }] as unknown as Record<string, unknown>;
     routes["/api/rigs/:id/up"] = (_req, body) => {
       if (body.plan === true || body._rigId) {
         if (body.plan === true) {
@@ -779,6 +882,9 @@ describe("rig start (OPR.0.3.4.1)", () => {
       { id: "rig-err", name: "err-rig", nodeCount: 1, lifecycleState: "detached" },
     ];
     routes["/api/rigs/:id"] = () => ({ sessions: [] });
+    routes["/api/rigs/:id/nodes"] = (_req, body) => body._rigId === "rig-ok"
+      ? [{ logicalId: "w", sessionStatus: "detached", intentionallyStopped: false }] as unknown as Record<string, unknown>
+      : { _httpStatus: 404 };
     routes["/api/rigs/:id/up"] = (_req, body) => {
       if (body._rigId === "rig-ok") {
         return {
@@ -893,11 +999,180 @@ describe("rig start (OPR.0.3.4.1)", () => {
         if (nodesMatch3 && routes["/api/rigs/:id/nodes"]) { res.writeHead(200).end(JSON.stringify(routes["/api/rigs/:id/nodes"]!(req, { _rigId: nodesMatch3[1] }))); return; }
         if (method === "GET" && url.match(/^\/api\/rigs\/[^/]+$/)) { const h = routes["/api/rigs/:id"]; res.writeHead(200).end(JSON.stringify(h ? h(req, body) : { sessions: [] })); return; }
         if (method === "POST" && url === "/api/up") { upBodies.push(body); const h = routes["/api/up"]; const d = h ? h(req, body) : {}; res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(d)); return; }
+        const seatLaunchRestore = method === "POST" && url.match(/^\/api\/seat\/launch\/([^/]+)$/);
+        if (seatLaunchRestore) {
+          const seatRef = decodeURIComponent(seatLaunchRestore[1]!);
+          seatLaunchBodies.push({ seatRef, body });
+          const h = routes["/api/seat/launch/:seatRef"];
+          const d = h ? h(req, { ...body, _seatRef: seatRef }) : {
+            ok: true, status: "ready", seat: { logicalId: seatRef.slice(0, seatRef.lastIndexOf("@")) }, sessionName: seatRef, warnings: [],
+          };
+          const httpStatus = (d as Record<string, unknown>)?._httpStatus as number | undefined;
+          const { _httpStatus: _, ...clean } = d as Record<string, unknown>;
+          res.writeHead(httpStatus ?? 200, { "Content-Type": "application/json" }).end(JSON.stringify(httpStatus ? clean : d));
+          return;
+        }
         const rigUpRestore = method === "POST" && url.match(/^\/api\/rigs\/([^/]+)\/up$/);
-        if (rigUpRestore) { upBodies.push({ ...body, _rigIdRoute: rigUpRestore[1] }); const h = routes["/api/rigs/:id/up"] ?? routes["/api/up"]; const d = h ? h(req, { ...body, _rigId: rigUpRestore[1] }) : {}; res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(d)); return; }
+        if (rigUpRestore) {
+          upBodies.push({ ...body, _rigIdRoute: rigUpRestore[1] });
+          const h = routes["/api/rigs/:id/up"] ?? routes["/api/up"];
+          const d = h ? h(req, { ...body, _rigId: rigUpRestore[1] }) : {};
+          const httpStatus = (d as Record<string, unknown>)?._httpStatus as number | undefined;
+          const { _httpStatus: _, ...clean } = d as Record<string, unknown>;
+          res.writeHead(httpStatus ?? 200, { "Content-Type": "application/json" }).end(JSON.stringify(httpStatus ? clean : d));
+          return;
+        }
         res.writeHead(404).end();
       });
     });
+  });
+
+  it("interactive fresh-prime success clears the original awaiting-decision and exits 0", async () => {
+    setupCandidateRig("fresh-prime-rig", { hasToken: false });
+    routes["/api/rigs/:id/up"] = (_req, body) => {
+      if (body.plan === true) {
+        return {
+          status: "plan", mode: "restore", rigId: "rig-1", rigName: "fresh-prime-rig",
+          snapshot: { id: "snap-1", kind: "auto-pre-down", createdAt: "2026-06-14T11:00:00Z" },
+          wouldCaptureCurrentState: false,
+          nodes: [{ logicalId: "dev.impl", intendedAction: "awaiting-decision", reason: "no token available" }],
+          mutated: false,
+        };
+      }
+      return {
+        status: "restored", rigId: "rig-1", rigName: "fresh-prime-rig", rigResult: "partially_restored",
+        nodes: [
+          { logicalId: "dev.impl", status: "awaiting-decision", error: "no token available" },
+          { logicalId: "dev.qa", status: "resumed" },
+        ],
+        warnings: [],
+      };
+    };
+
+    routes["/api/seat/launch/:seatRef"] = () => ({
+      ok: true,
+      status: "ready",
+      seat: { logicalId: "dev.impl" },
+      sessionName: "dev.impl@fresh-prime-rig",
+      warnings: ["startup submission unverified"],
+    });
+
+    const prompt = vi.fn(async () => true);
+    const { logs, exitCode } = await captureLogs(async () => {
+      await makeCmd(prompt).parseAsync(["node", "rig", "start", "--last", "--json"]);
+    });
+    expect(prompt).toHaveBeenCalled();
+    expect(exitCode).toBeUndefined();
+    // The recovery uses the documented per-seat launch wire contract. It must
+    // not re-POST the whole rig: siblings are already live by this point.
+    expect(seatLaunchBodies).toHaveLength(1);
+    expect(seatLaunchBodies[0]!.seatRef).toBe("dev.impl@fresh-prime-rig");
+    expect(seatLaunchBodies[0]!.body).toEqual({ fresh: true, reason: expect.stringContaining("no token available") });
+    const applyBodies = upBodies.filter((body) => body.plan !== true && body._rigIdRoute);
+    expect(applyBodies).toHaveLength(1);
+    expect(applyBodies.some((body) => Array.isArray(body.freshLogicalIds))).toBe(false);
+    const parsed = jsonResult(logs);
+    expect(parsed.restoredRigs[0]).toMatchObject({
+      rigName: "fresh-prime-rig",
+      status: "fully_restored",
+      warnings: ["startup submission unverified"],
+      nodes: [
+        { logicalId: "dev.impl", status: "fresh-primed" },
+        { logicalId: "dev.qa", status: "resumed" },
+      ],
+    });
+  });
+
+  it("fresh-prime recovery does not erase a separate real failure", async () => {
+    setupCandidateRig("fresh-prime-mixed-rig", { hasToken: false });
+    routes["/api/rigs/:id/up"] = (_req, body) => {
+      if (body.plan === true) {
+        return {
+          status: "plan", mode: "restore", rigId: "rig-1", rigName: "fresh-prime-mixed-rig",
+          snapshot: { id: "snap-1", kind: "auto-pre-down", createdAt: "2026-06-14T11:00:00Z" },
+          wouldCaptureCurrentState: false,
+          nodes: [
+            { logicalId: "dev.impl", intendedAction: "awaiting-decision", reason: "no token available" },
+            { logicalId: "dev.qa", intendedAction: "resume-original" },
+          ],
+          mutated: false,
+        };
+      }
+      return {
+        status: "restored", rigId: "rig-1", rigName: "fresh-prime-mixed-rig", rigResult: "partially_restored",
+        nodes: [
+          { logicalId: "dev.impl", status: "awaiting-decision", error: "no token available" },
+          { logicalId: "dev.qa", status: "failed", error: "harness boot failed" },
+        ],
+        warnings: [],
+      };
+    };
+
+    routes["/api/seat/launch/:seatRef"] = () => ({
+      ok: true,
+      status: "ready",
+      seat: { logicalId: "dev.impl" },
+      sessionName: "dev.impl@fresh-prime-mixed-rig",
+    });
+
+    const { logs, exitCode } = await captureLogs(async () => {
+      await makeCmd(async () => true).parseAsync(["node", "rig", "start", "--last", "--json"]);
+    });
+    expect(exitCode).toBe(1);
+    const parsed = jsonResult(logs);
+    // Only the held seat is launched fresh; the sibling's real failure and
+    // outcome survive the merge unchanged.
+    expect(seatLaunchBodies).toHaveLength(1);
+    expect(seatLaunchBodies[0]!.seatRef).toBe("dev.impl@fresh-prime-mixed-rig");
+    expect(upBodies.filter((body) => body.plan !== true && body._rigIdRoute)).toHaveLength(1);
+    expect(parsed.restoredRigs[0].nodes).toEqual([
+      { logicalId: "dev.impl", status: "fresh-primed" },
+      { logicalId: "dev.qa", status: "failed", error: "harness boot failed" },
+    ]);
+  });
+
+  it("fresh-prime retry failure reports a failed node and exits 1", async () => {
+    setupCandidateRig("fresh-prime-fail-rig", { hasToken: false });
+    routes["/api/rigs/:id/up"] = (_req, body) => {
+      if (body.plan === true) {
+        return {
+          status: "plan", mode: "restore", rigId: "rig-1", rigName: "fresh-prime-fail-rig",
+          snapshot: { id: "snap-1", kind: "auto-pre-down", createdAt: "2026-06-14T11:00:00Z" },
+          wouldCaptureCurrentState: false,
+          nodes: [{ logicalId: "dev.impl", intendedAction: "awaiting-decision", reason: "no token available" }],
+          mutated: false,
+        };
+      }
+      return {
+        status: "restored", rigId: "rig-1", rigName: "fresh-prime-fail-rig", rigResult: "partially_restored",
+        nodes: [{ logicalId: "dev.impl", status: "awaiting-decision", error: "no token available" }],
+        warnings: [],
+      };
+    };
+
+    routes["/api/seat/launch/:seatRef"] = () => ({
+      _httpStatus: 409,
+      ok: false,
+      status: "failed",
+      code: "fresh_failed",
+      message: "fresh launch failed",
+    });
+
+    const { logs, exitCode } = await captureLogs(async () => {
+      await makeCmd(async () => true).parseAsync(["node", "rig", "start", "--last", "--json"]);
+    });
+    expect(exitCode).toBe(1);
+    const parsed = jsonResult(logs);
+    // A refused seat launch replaces the unresolved decision with an honest
+    // failed node outcome; it never claims the rig was fully restored.
+    expect(parsed.restoredRigs[0]).toMatchObject({
+      rigName: "fresh-prime-fail-rig",
+      status: "partially_restored",
+      nodes: [{ logicalId: "dev.impl", status: "failed", error: "fresh launch failed" }],
+    });
+    expect(seatLaunchBodies).toHaveLength(1);
+    expect(seatLaunchBodies[0]!.seatRef).toBe("dev.impl@fresh-prime-fail-rig");
+    expect(upBodies.filter((body) => body.plan !== true && body._rigIdRoute)).toHaveLength(1);
   });
 
   it("partially_restored rigResult -> nonzero exit (not treated as clean)", async () => {
@@ -924,6 +1199,135 @@ describe("rig start (OPR.0.3.4.1)", () => {
       await makeCmd().parseAsync(["node", "rig", "start", "--last"]);
     });
     expect(exitCode).toBe(1);
+  });
+
+  it.each(["restore_in_progress", "service_boot_failed", "restore_error", "restore_failed", "attention_required"])(
+    "HTTP restore failure %s -> nonzero exit",
+    async (code) => {
+      setupCandidateRig(`http-error-${code}`);
+      routes["/api/rigs/:id/up"] = (_req, body) => body.plan === true
+        ? {
+            status: "plan", mode: "restore", rigId: "rig-1", rigName: `http-error-${code}`,
+            snapshot: { id: "s1", kind: "auto-pre-down", createdAt: "2026-06-14T00:00:00Z" },
+            wouldCaptureCurrentState: false,
+            nodes: [{ logicalId: "dev.impl", intendedAction: "resume-original" }],
+            mutated: false,
+          }
+        : { _httpStatus: 409, error: `${code} from daemon`, code };
+
+      const { logs, exitCode } = await captureLogs(async () => {
+        await makeCmd().parseAsync(["node", "rig", "start", "--last", "--json"]);
+      });
+      expect(exitCode).toBe(1);
+      const parsed = jsonResult(logs);
+      expect(parsed.restoredRigs[0]).toMatchObject({ status: code, nodes: [] });
+    },
+  );
+
+  it("unknown non-2xx restore code still exits nonzero (default is failure)", async () => {
+    setupCandidateRig("unknown-http-error");
+    routes["/api/rigs/:id/up"] = (_req, body) => body.plan === true
+      ? {
+          status: "plan", mode: "restore", rigId: "rig-1", rigName: "unknown-http-error",
+          snapshot: { id: "s1", kind: "auto-pre-down", createdAt: "2026-06-14T00:00:00Z" },
+          wouldCaptureCurrentState: false,
+          nodes: [{ logicalId: "dev.impl", intendedAction: "resume-original" }],
+          mutated: false,
+        }
+      : { _httpStatus: 503, error: "new daemon failure", code: "newly_surfaced_restore_failure" };
+
+    const { exitCode } = await captureLogs(async () => {
+      await makeCmd().parseAsync(["node", "rig", "start", "--last"]);
+    });
+    expect(exitCode).toBe(1);
+  });
+
+  it.each(["attention_required", "restore_in_progress", "service_boot_failed", "restore_error", "restore_failed"])(
+    "non-clean node outcome %s -> nonzero exit even when rigResult says fully_restored",
+    async (nodeStatus) => {
+      setupCandidateRig(`node-error-${nodeStatus}`);
+      routes["/api/rigs/:id/up"] = (_req, body) => body.plan === true
+        ? {
+            status: "plan", mode: "restore", rigId: "rig-1", rigName: `node-error-${nodeStatus}`,
+            snapshot: { id: "s1", kind: "auto-pre-down", createdAt: "2026-06-14T00:00:00Z" },
+            wouldCaptureCurrentState: false,
+            nodes: [{ logicalId: "dev.impl", intendedAction: "resume-original" }],
+            mutated: false,
+          }
+        : {
+            status: "restored", rigResult: "fully_restored",
+            nodes: [{ logicalId: "dev.impl", status: nodeStatus, error: `${nodeStatus} from node` }],
+            warnings: [],
+          };
+
+      const { exitCode } = await captureLogs(async () => {
+        await makeCmd().parseAsync(["node", "rig", "start", "--last"]);
+      });
+      expect(exitCode).toBe(1);
+    },
+  );
+
+  it("--json surfaces restore warnings and snapshot metadata", async () => {
+    setupCandidateRig("metadata-rig");
+    routes["/api/rigs/:id/up"] = (_req, body) => {
+      if (body.plan === true) {
+        return {
+          status: "plan", mode: "restore", rigId: "rig-1", rigName: "metadata-rig",
+          snapshot: { id: "snap-apply", kind: "auto-pre-down", createdAt: "2026-06-14T11:00:00Z" },
+          wouldCaptureCurrentState: false,
+          nodes: [{ logicalId: "dev.impl", intendedAction: "resume-original" }],
+          mutated: false,
+        };
+      }
+      return {
+        status: "restored", rigId: "rig-1", rigName: "metadata-rig", rigResult: "fully_restored",
+        snapshotId: "snap-apply", snapshotKind: "auto-pre-down", preRestoreSnapshotId: "snap-pre",
+        nodes: [{ logicalId: "dev.impl", status: "resumed" }],
+        warnings: ["warning-a"],
+      };
+    };
+
+    const { logs, exitCode } = await captureLogs(async () => {
+      await makeCmd().parseAsync(["node", "rig", "start", "--last", "--json"]);
+    });
+    expect(exitCode).toBeUndefined();
+    const parsed = jsonResult(logs);
+    expect(parsed.restoredRigs[0]).toMatchObject({
+      rigName: "metadata-rig",
+      snapshotId: "snap-apply",
+      snapshotKind: "auto-pre-down",
+      preRestoreSnapshotId: "snap-pre",
+      warnings: ["warning-a"],
+    });
+  });
+
+  it("human output surfaces restore warnings and snapshot metadata", async () => {
+    setupCandidateRig("metadata-human-rig");
+    routes["/api/rigs/:id/up"] = (_req, body) => {
+      if (body.plan === true) {
+        return {
+          status: "plan", mode: "restore", rigId: "rig-1", rigName: "metadata-human-rig",
+          snapshot: { id: "snap-apply", kind: "auto-pre-down", createdAt: "2026-06-14T11:00:00Z" },
+          wouldCaptureCurrentState: false,
+          nodes: [{ logicalId: "dev.impl", intendedAction: "resume-original" }],
+          mutated: false,
+        };
+      }
+      return {
+        status: "restored", rigId: "rig-1", rigName: "metadata-human-rig", rigResult: "fully_restored",
+        snapshotId: "snap-apply", snapshotKind: "auto-pre-down", preRestoreSnapshotId: "snap-pre",
+        nodes: [{ logicalId: "dev.impl", status: "resumed" }],
+        warnings: ["warning-a"],
+      };
+    };
+
+    const { logs } = await captureLogs(async () => {
+      await makeCmd().parseAsync(["node", "rig", "start", "--last"]);
+    });
+    const output = logs.join("\n");
+    expect(output).toContain("snapshot: snap-apply (auto-pre-down)");
+    expect(output).toContain("pre-restore snapshot: snap-pre");
+    expect(output).toContain("warning: warning-a");
   });
 
   // ---- JSON OUTPUT ----

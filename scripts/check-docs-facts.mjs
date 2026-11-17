@@ -16,8 +16,8 @@
  *   node scripts/check-docs-facts.mjs
  */
 
-import { readFileSync, readdirSync, statSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -429,18 +429,54 @@ export function checkDocsIndexes(root) {
   return findings;
 }
 
-/** Relative links in shipped docs must resolve to a real file. */
+/** True when `target` is not the root itself or a descendant of it. */
+function isOutside(root, target) {
+  const rel = relative(root, target);
+  return rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel);
+}
+
+/** Relative links in shipped docs must resolve to a real file inside the repo. */
 export function checkDocLinks(root) {
   const findings = [];
+  const rootAbs = resolve(root);
+  const rootReal = realpathSync(rootAbs);
   for (const relRoot of ["docs/reference", "docs/as-built"]) {
-    const dir = join(root, relRoot);
+    const dir = join(rootAbs, relRoot);
     for (const file of markdownFiles(dir)) {
-      const rel = file.slice(root.length + 1);
+      const rel = file.slice(rootAbs.length + 1);
       for (const target of linkedTargets(readFileSync(file, "utf-8"))) {
         const resolved = resolve(dirname(file), target);
+        // Reject lexical escapes (for example ../../../../outside) even when
+        // the target does not exist, before trying to resolve it.
+        if (isOutside(rootAbs, resolved)) {
+          findings.push({
+            code: "docs-link",
+            message: `${rel} links ${target}, which is outside the repository`,
+          });
+          continue;
+        }
+        let resolvedReal;
+        try {
+          resolvedReal = realpathSync(resolved);
+        } catch {
+          findings.push({
+            code: "docs-link",
+            message: `${rel} links ${target}, which does not exist`,
+          });
+          continue;
+        }
+        // A symlink inside the tree can still point outside it; containment is
+        // checked again against both the lexical root and its resolved form.
+        if (isOutside(rootReal, resolvedReal)) {
+          findings.push({
+            code: "docs-link",
+            message: `${rel} links ${target}, which is outside the repository`,
+          });
+          continue;
+        }
         let exists = false;
         try {
-          exists = statSync(resolved).isFile() || statSync(resolved).isDirectory();
+          exists = statSync(resolvedReal).isFile() || statSync(resolvedReal).isDirectory();
         } catch {
           exists = false;
         }

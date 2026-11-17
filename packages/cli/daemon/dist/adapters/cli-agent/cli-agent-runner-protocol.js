@@ -23,6 +23,10 @@ export function cliAgentSeatPaths(stateRoot, sessionName) {
         runnerStatePath: nodePath.join(seatRoot, "runner-state.json"),
     };
 }
+/** Per-seat token/cost snapshot written by the runner after each usage event. */
+export function cliAgentUsagePath(stateRoot, sessionName) {
+    return nodePath.join(stateRoot, sanitizeCliAgentSessionName(sessionName), "usage.json");
+}
 export function buildPendingCliAgentRunnerState(launchId, updatedAt, prior) {
     return {
         ready: false,

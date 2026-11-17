@@ -110,7 +110,8 @@ describe("ContextMonitor", () => {
     const node = rigRepo.addNode(rig.id, logicalId, { runtime });
     const session = sessionRegistry.registerSession(node.id, sessionName);
     db.prepare("UPDATE sessions SET status = 'running' WHERE id = ?").run(session.id);
-    return { rig, node, sessionName };
+    const occupantGeneration = sessionRegistry.currentOccupantTenure(node.id)?.generationUuid ?? null;
+    return { rig, node, sessionName, occupantGeneration };
   }
 
   function writeCliAgentUsage(runtime: "opencode" | "dsh", sessionName: string, sidecar: Record<string, unknown>) {
@@ -429,8 +430,11 @@ describe("ContextMonitor", () => {
 
   // R1 packet 4: running OpenCode/DSH seats are polled from the runner usage.json.
   it("pollOnce reads an opencode runner usage.json and appends a usage sample", async () => {
-    const { node, sessionName } = seedCliAgentNode("opencode");
-    writeCliAgentUsage("opencode", sessionName, OPENCODE_USAGE);
+    const { node, sessionName, occupantGeneration } = seedCliAgentNode("opencode");
+    writeCliAgentUsage("opencode", sessionName, {
+      ...OPENCODE_USAGE,
+      ...(occupantGeneration ? { occupantGeneration } : {}),
+    });
     const samples = new UsageSamplesStore(db);
     const nativeMonitor = new ContextMonitor(db, store, undefined, undefined, undefined, samples);
 
@@ -458,8 +462,11 @@ describe("ContextMonitor", () => {
   });
 
   it("pollOnce reads a dsh runner usage.json with null cost and appends a usage sample", async () => {
-    const { node, sessionName } = seedCliAgentNode("dsh");
-    writeCliAgentUsage("dsh", sessionName, DSH_USAGE);
+    const { node, sessionName, occupantGeneration } = seedCliAgentNode("dsh");
+    writeCliAgentUsage("dsh", sessionName, {
+      ...DSH_USAGE,
+      ...(occupantGeneration ? { occupantGeneration } : {}),
+    });
     const samples = new UsageSamplesStore(db);
     const nativeMonitor = new ContextMonitor(db, store, undefined, undefined, undefined, samples);
 

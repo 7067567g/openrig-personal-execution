@@ -48,6 +48,25 @@ function piHeadLine(seat) {
     const charge = providerChargeText(seat["providerCharge"]);
     return `${seat.seatSession}  ${head}${extras ? `; ${extras}` : ""}${charge ? `; ${charge}` : ""}  tokens in ${t.input ?? "?"} / out ${t.output ?? "?"}`;
 }
+/** Name the estimate's actual provenance. Mirrors `rig usage cost` exactly. */
+export function estimateProvenance(seat) {
+    const runtime = typeof seat["runtime"] === "string" ? seat["runtime"] : null;
+    const source = typeof seat["source"] === "string" && seat["source"].length > 0 ? seat["source"] : null;
+    if (source === "Claude statusline cost.total_cost_usd")
+        return "Claude statusline";
+    if (source)
+        return source;
+    if (runtime === "opencode")
+        return "OpenCode step_finish cost";
+    if (runtime === "claude-code")
+        return "Claude statusline";
+    if (runtime === "dsh")
+        return "DSH runner";
+    if (runtime)
+        return `${runtime} usage series`;
+    // Legacy cost views had no runtime field because Claude was the only method.
+    return "Claude statusline";
+}
 /** The line `rig usage cost` prints for this seat. */
 export function costHeadLine(seat) {
     if (seat["runtime"] === "pi")
@@ -56,7 +75,7 @@ export function costHeadLine(seat) {
     if (seat.status === "reported") {
         const stale = seat["stale"] ? `, STALE (${seat["ageSeconds"] ?? "?"}s old; kept as history)` : "";
         const resets = Number(seat["resets"]) > 0 ? `, ${seat["resets"]} reset${seat["resets"] === 1 ? "" : "s"}` : "";
-        return `${seat.seatSession}  ${formatUsd(Number(seat["costUsd"]))} client-side estimate (Claude statusline) for session ${w.nativeSessionId} since ${w.since}, as of ${w.asOf}${resets}${stale}  ${tok(seat["tokens"])}`;
+        return `${seat.seatSession}  ${formatUsd(Number(seat["costUsd"]))} client-side estimate (${estimateProvenance(seat)}) for session ${w.nativeSessionId} since ${w.since}, as of ${w.asOf}${resets}${stale}  ${tok(seat["tokens"])}`;
     }
     if (seat.status === "absent")
         return `${seat.seatSession}  cost: not reported (${seat["reason"]})  ${tok(seat["tokens"])}`;

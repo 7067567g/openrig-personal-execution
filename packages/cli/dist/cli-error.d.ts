@@ -16,6 +16,7 @@ export declare function formatCliError(err: unknown): {
     error: {
         code: string;
         message: string;
+        hint?: string;
     };
 };
 /** Recursively give every command exitOverride so parse errors throw instead of exiting. */

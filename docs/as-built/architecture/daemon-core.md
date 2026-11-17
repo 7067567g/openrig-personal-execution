@@ -179,7 +179,13 @@ Before the routes, `createApp` installs middleware in this order: the request-ph
 observer (`:497`), JSON body-parse error tracking, which turns a malformed body into
 `400 invalid_json` (`:499`), dependency injection, route timing, slow-operation
 recording, the browser boundary on `/api/*` (`:647`, Host and Origin checks; see
-`OPENRIG_ALLOWED_HOSTS` and `OPENRIG_ALLOWED_ORIGINS`), and host read-through.
+`OPENRIG_ALLOWED_HOSTS` and `OPENRIG_ALLOWED_ORIGINS`), host read-through, and the
+source-aware `mutationAuthMiddleware` on `/api/*`. The last gate reads the accepted
+socket peer: loopback peers may mutate without a token; non-loopback peers need the
+scoped operator/terminal bearer. If `bindPlan.hosts` contains a non-loopback listener
+and no operator bearer is configured, remote mutations return 403. This gate covers
+the core rig/up/down/config/workflow/seat writes in one place instead of relying on
+each route to remember a token check.
 
 `createAppWithWebSocket(deps)` (`server.ts:893`) sets `enableNodeWebSocket` and
 calls `createApp`; the terminal WebSocket is registered only when the web UI is

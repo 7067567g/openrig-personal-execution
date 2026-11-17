@@ -609,6 +609,13 @@ class StartupIdentityError extends Error {}
 class StartupChildPendingError extends Error {}
 
 export async function startDaemon(opts: StartOptions, deps: LifecycleDeps): Promise<DaemonState> {
+  // S8 Wave A — L1 library-level assertion. It runs BEFORE the start lock so a
+  // denied call acquires nothing, spawns nothing, writes no daemon.json and no DB
+  // row. `assertEntry` is the same single decision used by L0; it does not
+  // re-judge a launch already authorized earlier in this process.
+  const { assertEntry } = await import("./entry-guard.js");
+  await assertEntry(["daemon", "start"]);
+
   if (!deps.acquireStartLock) throw new Error("Daemon startup requires a local launch reservation");
   const lock = deps.acquireStartLock();
   let preserve = false;

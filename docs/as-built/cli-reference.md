@@ -136,7 +136,7 @@ Root: `rig`; declared option: `-V, --version`.
 
 | Invocation | Aliases | Declared options |
 |---|---|---|
-| `rig start` | — | `--last`<br>`--all`<br>`--rigs <names...>`<br>`--json` |
+| `rig start` | — | `--last`<br>`--all`<br>`--rigs <names...>`<br>`--plan`<br>`--allow-unknown-stop`<br>`--allow-downed`<br>`--json` |
 
 ### daemon
 
@@ -904,8 +904,12 @@ probe and the stop, its unexplained exit still affects rig health. The internal
 stop in `rig seat launch --fresh --stop` does not record final stop intent, so a
 refused replacement still degrades a rig with other healthy members running.
 
-`rig start --last` and `rig start --rigs <rig>` use the full per-seat lifecycle
-for restore selection. A partly running rig with an intentionally stopped member
+`rig start --last` and `rig start --all` use the full per-seat lifecycle for
+restore selection. Both keep an intentionally stopped rig down: `--last` reports
+it in `keptDown`; `--all` excludes it unless `--allow-downed` is supplied. An
+unreadable stop intent fails closed in both modes unless
+`--allow-unknown-stop` is explicit. `rig start --rigs <rig>` remains the direct
+per-name override. A partly running rig with an intentionally stopped member
 still appears as a `degraded` candidate and reports `rig_not_stopped` (exit 1)
 when restore is attempted. Launch scheduling and restore eligibility remain
 unchanged.

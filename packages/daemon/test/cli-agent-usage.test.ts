@@ -24,6 +24,7 @@ function opencodeStep(overrides: {
   cacheRead?: number;
   cacheWrite?: number;
   cost?: number;
+  total?: number;
 } = {}): Record<string, unknown> {
   return {
     type: "step_finish",
@@ -34,6 +35,7 @@ function opencodeStep(overrides: {
         output: overrides.output ?? 4,
         reasoning: overrides.reasoning ?? 1,
         cache: { read: overrides.cacheRead ?? 2, write: overrides.cacheWrite ?? 3 },
+        ...(overrides.total === undefined ? {} : { total_tokens: overrides.total }),
       },
       ...(overrides.cost === undefined ? { cost: 0.0125 } : { cost: overrides.cost }),
     },
@@ -52,7 +54,7 @@ describe("cli-agent usage fold — opencode", () => {
       sessionName: "exec-tdo-oc@rig",
       sampledAt: LATER,
       steps: 1,
-      totals: { input: 10, output: 4, reasoning: 1, cacheRead: 2, cacheWrite: 3, costUsd: 0.0125 },
+      totals: { input: 10, output: 4, reasoning: 1, cacheRead: 2, cacheWrite: 3, total: null, costUsd: 0.0125 },
       lastStep: {
         at: AT,
         input: 10,
@@ -60,6 +62,7 @@ describe("cli-agent usage fold — opencode", () => {
         reasoning: 1,
         cacheRead: 2,
         cacheWrite: 3,
+        total: null,
         costUsd: 0.0125,
       },
     });
@@ -88,7 +91,10 @@ describe("cli-agent usage fold — opencode", () => {
 
     expect(setCliAgentUsageSession(state, "ses_new", LATER)).toBe(true);
     expect(state.steps).toBe(0);
-    expect(state.totals).toEqual({ input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0, costUsd: null });
+    expect(state.totals).toEqual({
+      input: null, output: null, reasoning: null,
+      cacheRead: null, cacheWrite: null, total: null, costUsd: null,
+    });
     expect(state.lastStep).toBeNull();
     expect(state.lastEventId).toBeUndefined();
 
@@ -136,18 +142,20 @@ describe("cli-agent usage fold — dsh", () => {
     expect(sidecar.totals).toEqual({
       input: 12,
       output: 7,
-      reasoning: 0,
+      reasoning: null,
       cacheRead: 5,
       cacheWrite: 1,
+      total: 25,
       costUsd: null,
     });
     expect(sidecar.lastStep).toEqual({
       at: AT,
       input: 12,
       output: 7,
-      reasoning: 0,
+      reasoning: null,
       cacheRead: 5,
       cacheWrite: 1,
+      total: 25,
       costUsd: null,
     });
   });
@@ -186,6 +194,137 @@ describe("cli-agent usage fold — dsh", () => {
     }, AT)).toBe(true);
     expect(state.totals.input).toBe(9);
     expect(state.totals.output).toBe(4);
+  });
+});
+
+describe("cli-agent usage fold — honest counters and replay window", () => {
+  it("accepts a total_tokens/totalTokens-only step without inventing per-field zeros", () => {
+    const dsh = createCliAgentUsageState("dsh", "s");
+    expect(observeCliAgentUsageEvent(dsh, {
+      type: "status", phase: "step_end", turn: 4, step: 2,
+      usage: { total_tokens: 42 },
+    }, AT)).toBe(true);
+    expect(dsh.steps).toBe(1);
+    expect(dsh.totals).toMatchObject({
+      input: null, output: null, reasoning: null,
+      cacheRead: null, cacheWrite: null, total: 42,
+    });
+
+    const opencode = createCliAgentUsageState("opencode", "s");
+    expect(observeCliAgentUsageEvent(opencode, {
+      type: "step_finish", part: { id: "total-only", tokens: { totalTokens: 9 }, cost: 0.01 },
+    }, AT)).toBe(true);
+    expect(opencode.steps).toBe(1);
+    expect(opencode.totals).toMatchObject({
+      input: null, output: null, reasoning: null,
+      cacheRead: null, cacheWrite: null, total: 9,
+    });
+  });
+
+  it("keeps missing counters unknown across a later partial step", () => {
+    const state = createCliAgentUsageState("dsh", "s");
+    observeCliAgentUsageEvent(state, {
+      type: "status", phase: "step_end", turn: 1, step: 1,
+      usage: { inputTokens: 5 },
+    }, AT);
+    expect(state.totals).toMatchObject({
+      input: 5, output: null, reasoning: null,
+      cacheRead: null, cacheWrite: null, total: null,
+    });
+
+    observeCliAgentUsageEvent(state, {
+      type: "status", phase: "step_end", turn: 2, step: 1,
+      usage: { inputTokens: 3, outputTokens: 7 },
+    }, LATER);
+    // Input stayed reportable; output was never reported on step 1, so its
+    // cumulative value remains unknown rather than retroactively becoming 7.
+    expect(state.totals.input).toBe(8);
+    expect(state.totals.output).toBeNull();
+    expect(state.totals.cacheRead).toBeNull();
+  });
+
+  it("does not emit a step for an empty usage envelope or a cost-only step", () => {
+    const opencode = createCliAgentUsageState("opencode", "s");
+    expect(observeCliAgentUsageEvent(opencode, {
+      type: "step_finish", part: { id: "empty", tokens: {}, cost: 0.5 },
+    }, AT)).toBe(false);
+    expect(opencode.steps).toBe(0);
+    expect(opencode.lastStep).toBeNull();
+
+    const dsh = createCliAgentUsageState("dsh", "s");
+    expect(observeCliAgentUsageEvent(dsh, {
+      type: "status", phase: "step_end", turn: 1, step: 1, usage: {},
+    }, AT)).toBe(false);
+    expect(dsh.steps).toBe(0);
+    expect(dsh.lastStep).toBeNull();
+  });
+
+  it("dedupes replaying several earlier ids, not just the most recent one", () => {
+    const state = createCliAgentUsageState("opencode", "s");
+    for (const id of ["a", "b", "c"]) {
+      expect(observeCliAgentUsageEvent(state, opencodeStep({ id, input: 2, cost: 0.01 }), AT)).toBe(true);
+    }
+    const before = cliAgentUsageSnapshot(state, LATER);
+    expect(observeCliAgentUsageEvent(state, opencodeStep({ id: "a", input: 2, cost: 0.01 }), LATER)).toBe(false);
+    expect(observeCliAgentUsageEvent(state, opencodeStep({ id: "b", input: 2, cost: 0.01 }), LATER)).toBe(false);
+    expect(state.steps).toBe(3);
+    expect(state.totals.input).toBe(6);
+    expect(state.totals.costUsd).toBeCloseTo(0.03, 10);
+    expect(cliAgentUsageSnapshot(state, LATER).totals).toEqual(before.totals);
+  });
+
+  it("keeps the replay window bounded", () => {
+    const state = createCliAgentUsageState("opencode", "s");
+    for (let i = 0; i < 70; i += 1) {
+      observeCliAgentUsageEvent(state, opencodeStep({ id: `id-${i}`, input: 1 }), AT);
+    }
+    expect(state.recentEventIds).toHaveLength(64);
+    expect(state.recentEventIds[0]).toBe("id-6");
+    expect(state.recentEventIds.at(-1)).toBe("id-69");
+    // A replay older than the retained window cannot be proven duplicate; a
+    // replay inside it still can.
+    expect(observeCliAgentUsageEvent(state, opencodeStep({ id: "id-69", input: 1 }), LATER)).toBe(false);
+    expect(observeCliAgentUsageEvent(state, opencodeStep({ id: "id-5", input: 1 }), LATER)).toBe(true);
+  });
+});
+
+describe("cli-agent usage fold — occupant generations", () => {
+  it("resumes only the same occupant generation and rejects a same-name successor", () => {
+    const predecessor = createCliAgentUsageState("opencode", "same-name@r", "ses-old", null, "gen-a");
+    observeCliAgentUsageEvent(predecessor, opencodeStep({ id: "old-step", input: 100, cost: 1 }), AT);
+    const prior = parseCliAgentUsageSidecar(JSON.stringify(cliAgentUsageSnapshot(predecessor, LATER)))!;
+    expect(prior.occupantGeneration).toBe("gen-a");
+
+    const continuation = createCliAgentUsageState("opencode", "same-name@r", "ses-old", prior, "gen-a");
+    expect(continuation.steps).toBe(1);
+    expect(continuation.totals.input).toBe(100);
+    expect(observeCliAgentUsageEvent(continuation, opencodeStep({ id: "old-step", input: 100, cost: 1 }), LATER)).toBe(false);
+
+    const successor = createCliAgentUsageState("opencode", "same-name@r", undefined, prior, "gen-b");
+    expect(successor.occupantGeneration).toBe("gen-b");
+    expect(successor.sessionId).toBeUndefined();
+    expect(successor.steps).toBe(0);
+    expect(successor.totals).toEqual({
+      input: null, output: null, reasoning: null,
+      cacheRead: null, cacheWrite: null, total: null, costUsd: null,
+    });
+    expect(successor.recentEventIds).toEqual([]);
+    // The predecessor's id is not in the successor's window, so it is a fresh
+    // observation for this generation rather than being silently dropped.
+    expect(observeCliAgentUsageEvent(successor, opencodeStep({ id: "old-step", input: 7, cost: 0.1 }), LATER)).toBe(true);
+    expect(successor.totals.input).toBe(7);
+  });
+
+  it("starts empty when the live generation is known but a legacy sidecar has none", () => {
+    const legacy = createCliAgentUsageState("opencode", "s", "ses-1", null, undefined);
+    observeCliAgentUsageEvent(legacy, opencodeStep({ id: "x", input: 50, cost: 0.5 }), AT);
+    const prior = parseCliAgentUsageSidecar(JSON.stringify(cliAgentUsageSnapshot(legacy, LATER)))!;
+    expect(prior.occupantGeneration).toBeUndefined();
+
+    const current = createCliAgentUsageState("opencode", "s", undefined, prior, "gen-current");
+    expect(current.steps).toBe(0);
+    expect(current.totals.input).toBeNull();
+    expect(current.occupantGeneration).toBe("gen-current");
   });
 });
 
@@ -281,7 +420,7 @@ describe("cli-agent runner usage sidecar", () => {
     return bin;
   }
 
-  function startRunner(opts: { dir: string; runtime: "opencode" | "dsh"; script: string }) {
+  function startRunner(opts: { dir: string; runtime: "opencode" | "dsh"; script: string; env?: Record<string, string | undefined> }) {
     const stateRoot = path.join(opts.dir, "state");
     const args = [
       "--import", "tsx", RUNNER,
@@ -294,7 +433,7 @@ describe("cli-agent runner usage sidecar", () => {
     ];
     const child = spawn(process.execPath, args, {
       cwd: REPO_ROOT,
-      env: process.env,
+      env: { ...process.env, ...opts.env },
       stdio: ["pipe", "pipe", "pipe"],
     });
     running.push(child);
@@ -388,7 +527,7 @@ process.exit(0);
         sessionName: "dev-stub",
         sessionId: "session-stub",
         steps: 1,
-        totals: { input: 9, output: 3, reasoning: 0, cacheRead: 1, cacheWrite: 0, costUsd: null },
+        totals: { input: 9, output: 3, reasoning: null, cacheRead: 1, cacheWrite: 0, total: null, costUsd: null },
       });
       await stop(handle.child);
     } finally {
@@ -422,6 +561,42 @@ process.exit(0);
       expect((usage["totals"] as Record<string, unknown>)["input"]).toBe(15);
       expect((usage["totals"] as Record<string, unknown>)["costUsd"]).toBeCloseTo(0.02, 10);
       await stop(second.child);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it("does not resume a same-name successor's predecessor sidecar", async () => {
+    const dir = tempDir();
+    try {
+      const stepScript = (id: string, input: number): string => `#!/usr/bin/env node
+const emit = (o) => process.stdout.write(JSON.stringify(o) + "\\n");
+emit({ type: "step_finish", part: { id: "${id}", tokens: { input: ${input}, output: 1 }, cost: 0.01 } });
+process.exit(0);
+`;
+      const first = startRunner({
+        dir, runtime: "opencode", script: stepScript("shared-id", 100),
+        env: { OPENRIG_OCCUPANT_GENERATION: "gen-a" },
+      });
+      const firstUsage = await waitFor(() => {
+        const value = first.usage();
+        return value && value["steps"] === 1 ? value : undefined;
+      }, "predecessor usage.json");
+      expect(firstUsage["occupantGeneration"]).toBe("gen-a");
+      expect((firstUsage["totals"] as Record<string, unknown>)["input"]).toBe(100);
+      await stop(first.child);
+
+      const successor = startRunner({
+        dir, runtime: "opencode", script: stepScript("shared-id", 7),
+        env: { OPENRIG_OCCUPANT_GENERATION: "gen-b" },
+      });
+      const successorUsage = await waitFor(() => {
+        const value = successor.usage();
+        return value && value["occupantGeneration"] === "gen-b" ? value : undefined;
+      }, "successor usage.json");
+      expect(successorUsage["steps"]).toBe(1);
+      expect((successorUsage["totals"] as Record<string, unknown>)["input"]).toBe(7);
+      await stop(successor.child);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

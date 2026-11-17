@@ -11,6 +11,8 @@ The wrapper is deliberately explicit:
   * the teardown command is supplied by the operator and is argv-split, not
     evaluated as a shell string;
   * PARTIAL archives return rc=2 and never execute the teardown command;
+  * required items marked notApplicable with runtime evidence are treated as n/a,
+    not missing (for example sessionSnapshots on a run with no DSH runtime);
   * `--allow-incomplete` needs both `--decision D-xxx` and a matching row for the
     same run in `<archive-root>/ARCHIVE-DECISIONS.md` (A5: a bare `D-` prefix used
     to be enough, so an invented id could bypass the strict gate).
@@ -85,12 +87,17 @@ def inspect_manifest(path: Path) -> dict:
     data = json.loads(path.read_text(encoding="utf-8"))
     status = str(data.get("archiveStatus") or "MISSING")
     required = data.get("required") if isinstance(data.get("required"), dict) else {}
-    missing_required = [k for k in REQUIRED_KEYS if required.get(k) is not True]
+    not_applicable = data.get("notApplicable") if isinstance(data.get("notApplicable"), dict) else {}
+    missing_required = [
+        k for k in REQUIRED_KEYS
+        if required.get(k) is not True and not_applicable.get(k) is not True
+    ]
     files = data.get("files") if isinstance(data.get("files"), list) else []
     return {
         "path": str(path),
         "archiveStatus": status,
         "required": required,
+        "notApplicable": not_applicable,
         "missingRequired": missing_required,
         "files": len(files),
         "complete": status == "COMPLETE" and not missing_required and bool(files),

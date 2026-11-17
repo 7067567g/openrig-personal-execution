@@ -70,6 +70,58 @@ export declare function computeTopBurn(db: Database, q: TopBurnQuery): TopBurnRe
 /** A Claude estimate older than this reads stale (it stays shown, as history). Matches context freshness. */
 export declare const COST_STALE_AFTER_MS: number;
 export declare const CODEX_NO_COST_NOTE = "no cost reported by the inspected method (Codex token_count events carry tokens only)";
+/** DSH's runner reports token usage but no client-side cost; the view says so instead of showing $0. */
+export declare const DSH_NO_COST_NOTE = "no cost reported by the inspected method (DSH runner reports tokens but no client cost estimate)";
+export type OpencodeReportedCost = {
+    seatSession: string;
+    runtime: "opencode";
+    status: "reported";
+    kind: "client-side estimate";
+    source: "OpenCode step_finish cost";
+    costUsd: number;
+    /** The estimate is cumulative for one native OpenCode session, since its last reset. */
+    window: {
+        nativeSessionId: string;
+        since: string;
+        asOf: string;
+    };
+    coverage: string;
+    resets: number;
+    stale: boolean;
+    ageSeconds: number | null;
+    tokens: {
+        input: number | null;
+        output: number | null;
+    };
+};
+export type OpencodeAbsentCost = {
+    seatSession: string;
+    runtime: "opencode";
+    status: "absent";
+    reason: string;
+    window: {
+        nativeSessionId: string | null;
+        asOf: string | null;
+    };
+    tokens: {
+        input: number | null;
+        output: number | null;
+    };
+};
+export type DshSeatCost = {
+    seatSession: string;
+    runtime: "dsh";
+    status: "no-cost-method";
+    note: string;
+    window: {
+        nativeSessionId: string | null;
+        asOf: string | null;
+    };
+    tokens: {
+        input: number | null;
+        output: number | null;
+    };
+};
 export type SeatCost = {
     seatSession: string;
     runtime: "claude-code";
@@ -117,7 +169,7 @@ export type SeatCost = {
         input: number | null;
         output: number | null;
     };
-} | PiSeatCost | {
+} | PiSeatCost | OpencodeReportedCost | OpencodeAbsentCost | DshSeatCost | {
     seatSession: string;
     runtime: null;
     status: "unknown";

@@ -146,8 +146,8 @@ describe("Bundle types", () => {
     expect(result.errors.some((e) => e.includes("safe relative path"))).toBe(true);
   });
 
-  // T12: missing provenance is valid (backward compat — pre-Item-1 bundles install)
-  it("missing provenance block passes validation (backward compat)", () => {
+  // T12: all optional blocks absent is valid (backward compat; consolidated B032 C1)
+  it("missing optional blocks pass validation (backward compat)", () => {
     const raw = { ...VALID_RAW };
     const result = validateBundleManifest(raw);
     expect(result.valid).toBe(true);
@@ -264,11 +264,6 @@ describe("Bundle types", () => {
   // -- Item 2 compatibility block tests (slice-05 Checkpoint 3.1) --
 
   // C1: missing compatibility is valid (backward compat)
-  it("missing compatibility block passes validation (backward compat)", () => {
-    const raw = { ...VALID_RAW };
-    const result = validateBundleManifest(raw);
-    expect(result.valid).toBe(true);
-  });
 
   // C2: full compatibility block passes validation
   it("full compatibility block passes validation", () => {
@@ -372,11 +367,6 @@ describe("Bundle types", () => {
 
   // -- Item 6 skills block tests (slice-05 Checkpoint 7.1) --
 
-  it("missing skills block passes validation (backward compat)", () => {
-    const raw = { ...VALID_RAW };
-    const result = validateBundleManifest(raw);
-    expect(result.valid).toBe(true);
-  });
 
   it("skills as a string array of safe relative paths passes validation", () => {
     const raw = { ...VALID_RAW, skills: ["skills/review-kit/SKILL.md", "skills/test-runner/SKILL.md"] };
@@ -449,11 +439,6 @@ describe("Bundle types", () => {
 
   // -- Item 6 plugins block tests (slice-05 Checkpoint 7.3b) --
 
-  it("missing plugins block passes validation (backward compat)", () => {
-    const raw = { ...VALID_RAW };
-    const result = validateBundleManifest(raw);
-    expect(result.valid).toBe(true);
-  });
 
   it("plugins as array of valid {id, source} entries passes validation", () => {
     const raw = {
@@ -543,11 +528,6 @@ describe("Bundle types", () => {
 
   // -- Item 6 workflow_specs block tests (slice-05 Checkpoint 7.3e) --
 
-  it("missing workflow_specs block passes validation (backward compat)", () => {
-    const raw = { ...VALID_RAW };
-    const result = validateBundleManifest(raw);
-    expect(result.valid).toBe(true);
-  });
 
   it("workflow_specs as a string array of safe relative paths passes validation", () => {
     const raw = { ...VALID_RAW, workflow_specs: ["workflows/onboarding.yaml", "workflows/release.yaml"] };
@@ -620,11 +600,6 @@ describe("Bundle types", () => {
 
   // -- Item 6 context_packs block tests (slice-05 Checkpoint 7.3f) --
 
-  it("missing context_packs block passes validation (backward compat)", () => {
-    const raw = { ...VALID_RAW };
-    const result = validateBundleManifest(raw);
-    expect(result.valid).toBe(true);
-  });
 
   it("context_packs as a string array of safe relative paths passes validation", () => {
     const raw = { ...VALID_RAW, context_packs: ["context-packs/intent/manifest.yaml", "context-packs/persona/manifest.yaml"] };
@@ -697,11 +672,6 @@ describe("Bundle types", () => {
 
   // -- Item 6 agent_images block tests (slice-05 Checkpoint 7.3g) --
 
-  it("missing agent_images block passes validation (backward compat)", () => {
-    const raw = { ...VALID_RAW };
-    const result = validateBundleManifest(raw);
-    expect(result.valid).toBe(true);
-  });
 
   it("agent_images as a string array of safe relative paths passes validation", () => {
     const raw = { ...VALID_RAW, agent_images: ["agent-images/seat-a", "agent-images/seat-b"] };
@@ -777,11 +747,6 @@ describe("Bundle types", () => {
   // extracted bundle root, so an escaping value is an arbitrary-directory write/read. The
   // pod-aware (v2) validator already rejects these; the legacy (v1) validator must too.
 
-  it("missing project block passes validation (backward compat)", () => {
-    const raw = { ...VALID_RAW };
-    const result = validateBundleManifest(raw);
-    expect(result.valid).toBe(true);
-  });
 
   it("project block with a simple id and a safe relative path passes validation", () => {
     const raw = { ...VALID_RAW, project: { id: "openrig", path: "project" } };

@@ -1,12 +1,16 @@
 {
   "package": "openrig-personal-execution",
-  "generatedAt": "2026-11-16T03:10:36Z",
-  "generatedBy": "OpenRig Personal Stack rename/alignment 2026-11-16",
-  "fileCount": 11660,
-  "bytes": 87446981,
+  "generatedAt": "2026-11-18T06:28:00+08:00",
+  "generatedBy": "public-exec-builder (task-15)",
+  "fileCount": 11802,
+  "bytes": 91589525,
   "largest": [
     {
       "path": "packages/cli/ui/dist/assets/index-CjGBhfVP.js",
+      "bytes": 1970277
+    },
+    {
+      "path": "packages/ui/dist/assets/index-CjGBhfVP.js",
       "bytes": 1970277
     },
     {
@@ -40,24 +44,25 @@
     {
       "path": "packages/ui/twin/corrective/media-webm.ts",
       "bytes": 189643
-    },
-    {
-      "path": "packages/daemon/test/session-transport.test.ts",
-      "bytes": 186344
     }
   ],
   "sha256Manifest": "SHA256SUMS",
-  "sha256ManifestLines": 11660,
+  "sha256ManifestLines": 11802,
   "exclusions": [
     ".git/",
     "node_modules/",
     "var/",
     "var.7z",
+    ".venv/",
+    ".pytest_cache/",
+    ".r7-work/",
+    ".omo/",
+    ".locks/",
     ".agents/",
     ".claude/",
     ".evidence/",
     ".codegraph",
-    "rig.yaml",
+    "/rig.yaml",
     "UPSTREAM-BASE",
     "*.sqlite*",
     "*.db",
@@ -71,15 +76,35 @@
     "*.tgz",
     ".DS_Store",
     "__pycache__/",
-    "demo/proof/"
+    "*.pyc",
+    "demo/proof/",
+    "TEST-REFACTOR.md",
+    "/README-PERSONAL.md",
+    "/README-UPSTREAM.md",
+    "/README.md",
+    "/RUNTIME.md",
+    "/RELEASE-NOTES.md",
+    "/STACK.json",
+    "/.gitignore",
+    "/runtime/",
+    "/AGENTS.md",
+    "/CLEANING-REPORT.md",
+    "/CLEANING-REPORT-20261116.md",
+    "/PACKAGE-MANIFEST.json",
+    "/SHA256SUMS"
   ],
   "knownGaps": [
-    "Snapshot of a dirty working tree, not a tagged release.",
-    "Test fixtures retain synthetic /home/... strings by design.",
-    "dist/ shipped prebuilt; runtime/install.sh rebuilds."
+    "Source snapshot at personal product HEAD 8a7b8e00e48f4a7aa0a47e03336705c45b5aef23; tracked diff empty; only excluded var/ evidence trees were untracked.",
+    "dist/ shipped prebuilt; runtime/install.sh rebuilds.",
+    "Synthetic /home/... fixtures and fake credential-shaped test strings remain by design; see CLEANING-REPORT.md.",
+    "Package-only docs from the prior public clone retain prior package wording/date where applicable.",
+    "The security-lane dependency test is skipped when node_modules/.bin/vitest is absent; run npm ci for the full gate."
   ],
   "notes": [
     "SHA256SUMS and PACKAGE-MANIFEST.json are not listed within themselves; every other file is covered."
   ],
-  "version": "0.1.4"
+  "version": "0.1.4",
+  "sourceHead": "8a7b8e00e48f4a7aa0a47e03336705c45b5aef23",
+  "sourceHeadSubject": "test(openrig): skip security-lane dependency test when vitest is absent",
+  "sourceTrackedDiff": "empty"
 }

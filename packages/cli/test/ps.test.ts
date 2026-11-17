@@ -409,6 +409,78 @@ describe("Ps CLI", () => {
     expect(output).toContain("demo-rig#rig-new");
   });
 
+  it("ps --nodes --json exposes permission policy, launch posture, and non-interruptive tri-state", async () => {
+    psData = [
+      { rigId: "rig-1", name: "test-rig", nodeCount: 1, runningCount: 1, status: "running", uptime: "1h", latestSnapshot: null },
+    ];
+    nodesData["rig-1"] = [{
+      rigId: "rig-1", rigName: "test-rig", logicalId: "dev.impl", podId: "pod-1", podNamespace: "dev",
+      canonicalSessionName: "dev-impl@test-rig", nodeKind: "agent", runtime: "claude-code", model: "claude-sonnet-4",
+      permissionPolicy: "builtin:yolo", permissionPolicySource: "rig",
+      launchPosture: "full_bypass", launchPostureSource: "rig", nonInterruptive: true,
+      sessionStatus: "running", startupStatus: "ready", restoreOutcome: "n-a",
+      tmuxAttachCommand: null, resumeCommand: null, latestError: null,
+    }];
+    const { logs } = await captureLogs(async () => {
+      await makeCmd().parseAsync(["node", "rig", "ps", "--nodes", "-A", "--json"]);
+    });
+    const parsed = JSON.parse(logs.join(""));
+    expect(parsed[0]).toMatchObject({
+      runtime: "claude-code",
+      model: "claude-sonnet-4",
+      permissionPolicy: "builtin:yolo",
+      permissionPolicySource: "rig",
+      launchPosture: "full_bypass",
+      launchPostureSource: "rig",
+      nonInterruptive: true,
+    });
+  });
+
+  it("ps --nodes --json --fields accepts the posture trio", async () => {
+    psData = [
+      { rigId: "rig-1", name: "test-rig", nodeCount: 1, runningCount: 1, status: "running", uptime: "1h", latestSnapshot: null },
+    ];
+    nodesData["rig-1"] = [{
+      rigId: "rig-1", rigName: "test-rig", logicalId: "dev.impl", canonicalSessionName: "dev-impl@test-rig",
+      nodeKind: "agent", runtime: "claude-code", model: null,
+      permissionPolicy: "builtin:auto", permissionPolicySource: "node",
+      launchPosture: "auto", launchPostureSource: "node", nonInterruptive: null,
+      sessionStatus: "running", startupStatus: "ready", restoreOutcome: "n-a",
+      tmuxAttachCommand: null, resumeCommand: null, latestError: null,
+    }];
+    const { logs } = await captureLogs(async () => {
+      await makeCmd().parseAsync([
+        "node", "rig", "ps", "--nodes", "-A", "--json",
+        "--fields", "permissionPolicy,launchPosture,nonInterruptive",
+      ]);
+    });
+    const parsed = JSON.parse(logs.join(""));
+    expect(parsed.entries[0]).toEqual({
+      permissionPolicy: "builtin:auto",
+      launchPosture: "auto",
+      nonInterruptive: null,
+    });
+  });
+
+  it("ps --nodes --full prints a posture/non-interruptive footer", async () => {
+    psData = [
+      { rigId: "rig-1", name: "test-rig", nodeCount: 1, runningCount: 1, status: "running", uptime: "1h", latestSnapshot: null },
+    ];
+    nodesData["rig-1"] = [{
+      rigId: "rig-1", rigName: "test-rig", logicalId: "dev.impl", canonicalSessionName: "dev-impl@test-rig",
+      nodeKind: "agent", runtime: "claude-code", model: null,
+      permissionPolicy: "builtin:auto", permissionPolicySource: "node",
+      launchPosture: "auto", launchPostureSource: "node", nonInterruptive: null,
+      sessionStatus: "running", startupStatus: "ready", restoreOutcome: "n-a",
+      tmuxAttachCommand: null, resumeCommand: null, latestError: null,
+    }];
+    const { logs } = await captureLogs(async () => {
+      await makeCmd().parseAsync(["node", "rig", "ps", "--nodes", "-A", "--full"]);
+    });
+    const output = logs.join("\n");
+    expect(output).toContain("policy=builtin:auto posture=auto non-interruptive=unknown");
+  });
+
   it("ps --nodes --json --full produces valid JSON array with restoreOutcome", async () => {
     psData = [
       { rigId: "rig-1", name: "test-rig", nodeCount: 1, runningCount: 1, status: "running", uptime: "1m", latestSnapshot: null },

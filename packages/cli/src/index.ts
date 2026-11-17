@@ -289,7 +289,25 @@ if (isDirectRun()) {
   const { runFrontDoor } = await import("./front-door.js");
   const owned = await runFrontDoor(process.argv);
   if (!owned) {
+    // S8 Wave A — the direct-run path bypasses bin-wrapper, so it must apply the
+    // same L0 entry guard (one decision, no second implementation).
+    const { stripAllowDirect, evaluateEntry, renderDenial, resolveGuardHome } = await import(
+      "./entry-guard.js"
+    );
+    const stripped = stripAllowDirect(process.argv);
+    const home = resolveGuardHome(process.env);
+    const entryDecision = await evaluateEntry(stripped.argv.slice(2), {
+      home,
+      env: process.env,
+      allowDirect: stripped.allowDirect,
+      ...(stripped.allowDirectReason !== undefined
+        ? { allowDirectReason: stripped.allowDirectReason }
+        : {}),
+    });
+    if (!entryDecision.allow) {
+      process.exit(renderDenial(entryDecision, { argv: stripped.argv, home }));
+    }
     const { runProgram: runProgramDirect } = await import("./cli-error.js");
-    await runProgramDirect(createProgram(), process.argv);
+    await runProgramDirect(createProgram(), stripped.argv);
   }
 }

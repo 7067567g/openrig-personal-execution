@@ -57,7 +57,12 @@ export class SnapshotCapture {
     this.checkpointStore = deps.checkpointStore;
   }
 
-  captureSnapshot(rigId: string, kind: string, opts?: { intendedNodeIds?: string[] }): Snapshot {
+  /**
+   * Build the exact snapshot payload without writing it. Read-only: used by
+   * restore preflight so an invalid capture never becomes a persisted
+   * `auto-rehydrate` row before structural validation.
+   */
+  prepareSnapshotData(rigId: string, kind: string, opts?: { intendedNodeIds?: string[] }): SnapshotData {
     // 1. Get rig with nodes, edges, bindings
     const rig = this.rigRepo.getRig(rigId);
     if (!rig) {
@@ -146,7 +151,16 @@ export class SnapshotCapture {
       envReceipt,
     };
 
-    // 5. Atomic: persist snapshot + event in one transaction
+    return data;
+  }
+
+  captureSnapshot(rigId: string, kind: string, opts?: { intendedNodeIds?: string[]; preparedData?: SnapshotData }): Snapshot {
+    const data = opts?.preparedData ?? this.prepareSnapshotData(rigId, kind, { intendedNodeIds: opts?.intendedNodeIds });
+    if (data.rig.id !== rigId) {
+      throw new Error(`Prepared snapshot rig ${data.rig.id} does not match capture rig ${rigId}`);
+    }
+
+    // Atomic: persist snapshot + event in one transaction
     const txn = this.db.transaction(() => {
       const snapshot = this.snapshotRepo.createSnapshot(rigId, kind, data);
       const persistedEvent = this.eventBus.persistWithinTransaction({
@@ -160,7 +174,7 @@ export class SnapshotCapture {
 
     const { snapshot, persistedEvent } = txn();
 
-    // 6. Notify subscribers after commit (best-effort)
+    // Notify subscribers after commit (best-effort)
     this.eventBus.notifySubscribers(persistedEvent);
 
     return snapshot;

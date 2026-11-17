@@ -26,9 +26,10 @@ executor that advances a run without a conversation doing it.
   appears in `packages/daemon/src`. `--root-objective` is only text written into
   the entry packet body (`packages/daemon/src/domain/workflow-runtime.ts:1843-1854`).
 - The workflow engine does not advance itself. The only caller of
-  `runtime.project()` is the HTTP route
-  (`packages/daemon/src/routes/workflow.ts:290`), and that route is mounted
-  without a bearer (`packages/daemon/src/server.ts:796`).
+  `runtime.project()` is the HTTP route (`packages/daemon/src/routes/workflow.ts`).
+  Workflow mutations now pass the daemon-wide `mutationAuthMiddleware` on
+  `/api/*`; this is a transport gate with one static operator token, not a
+  per-goal principal model.
 - There is no `main` object. The word shows up as a CLI pod name
   (`packages/cli/src/commands/create.ts:58,93`) and as a template target
   (`control-main@…` in `packages/daemon/src/builtins/workflow-specs/opencode-dsh.yaml:27`),
@@ -303,11 +304,12 @@ will never see an empty-frontier active run. `do_advance` writes the goal's
 
 ### A2 — principal comes from the bearer subject
 
-**FACT.** `/api/workflow` is mounted without a bearer (`packages/daemon/src/server.ts:796`),
-and the bearer that exists is a single static token,
-"Token holder is fully privileged"
-(`packages/daemon/src/middleware/auth-bearer-token.ts:11-14`). A client-supplied
-`principal` string makes `approve`'s principal comparison always true.
+**FACT.** Workflow mutations now cross the daemon-wide
+`mutationAuthMiddleware` (`packages/daemon/src/middleware/auth-bearer-token.ts`),
+but the bearer that exists is still a single static operator token,
+"Token holder is fully privileged". The token has no principal subject, so a
+client-supplied `principal` string would still make `approve`'s principal
+comparison always true.
 
 **PROPOSAL.** `goals` routes require a bearer from day one, and `principal` is
 taken from the bearer subject (`owner:<token-id>`), never from the request body.

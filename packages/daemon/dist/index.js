@@ -1,4 +1,5 @@
 import { serve } from "@hono/node-server";
+import { appendFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { endProbeGroupsOnStartupSignal, stopRuntimeProbes } from "./adapters/bounded-probe-exec.js";
@@ -7,6 +8,8 @@ import { readOpenRigEnv, OPENRIG_HOME } from "./openrig-compat.js";
 import { makeOperatorDeliveryEngine } from "./domain/gateway/operator-delivery-engine.js";
 import { resolveDaemonDbPath } from "./daemon-db-path.js";
 import { createDaemon } from "./startup.js";
+import { checkDaemonBoot } from "./entry-guard.js";
+import { makeGuardedFetch } from "./entry-guard-http.js";
 import { removeParentSessionEnv } from "./domain/parent-session-env.js";
 import { resolveBindPlan } from "./domain/bind-plan.js";
 import { runQueueRetentionSweep, RETENTION_DEFAULTS } from "./domain/queue-retention.js";
@@ -273,8 +276,17 @@ export async function startServer(port) {
     // P7 — lifecycle heartbeat: advance last-seen every tick while running.
     let heartbeatTimer = null;
     const servers = [];
+    // S9 W-S8-05 — L3 HTTP admission. The daemon is already listening by the time a
+    // direct HTTP client arrives, so L0–L2 never see it. Wrapping the composed app's
+    // fetch keeps the check at the ONE boundary every route crosses: a lifecycle
+    // mutation on an S1 managed home is decided BEFORE any handler runs, while
+    // read-only routes and non-managed homes pass through untouched.
+    const guardedFetch = makeGuardedFetch(app.fetch, {
+        home: OPENRIG_HOME,
+        env: process.env,
+    });
     for (const host of bindHosts) {
-        const srv = serve({ fetch: app.fetch, port: p, hostname: host }, (info) => {
+        const srv = serve({ fetch: guardedFetch, port: p, hostname: host }, (info) => {
             console.log(`OpenRig daemon listening on http://${host}:${info.port}`);
             if (!monitorsStarted) {
                 monitorsStarted = true;
@@ -379,6 +391,29 @@ export async function startServer(port) {
 const isDirectRun = process.argv[1] &&
     import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isDirectRun) {
+    // S8 Wave A — L2 daemon boot self-check (B3: systemd ExecStart can point straight
+    // at `node dist/index.js`). Only an S1 managed home is judged, and only a launch
+    // record that is still valid at boot passes; S2 path shape stays a pass (D-S8-04).
+    // A deny happens before any DB init, port bind, or daemon.json write.
+    const boot = checkDaemonBoot({ home: OPENRIG_HOME, env: process.env });
+    if (!boot.allow) {
+        const code = boot.code ?? "entry_guard_boot_denied";
+        const lines = [
+            `error: entry guard denied daemon boot on managed run home ${OPENRIG_HOME}`,
+            `  Why: ${boot.reason} (code: ${code})`,
+            "  Use: openrig-run start --run-dir <run-dir>",
+            "  See: openrig-run next --run-dir <run-dir>",
+        ];
+        for (const line of lines)
+            console.error(line);
+        try {
+            appendFileSync(path.join(OPENRIG_HOME, "daemon.log"), `${new Date().toISOString()} ${code} ${boot.reason}\n`);
+        }
+        catch {
+            // The log line is evidence, not a gate: a read-only home must not change the exit.
+        }
+        process.exit(2);
+    }
     // Before anything spawns: the tmux server this daemon starts passes its
     // environment to every seat, so drop the launching session's identity.
     const removed = removeParentSessionEnv(process.env);

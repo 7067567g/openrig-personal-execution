@@ -70,6 +70,28 @@ function providerChargeText(raw) {
         default: return "";
     }
 }
+/** Name the estimate's actual provenance. The cost view already carries the
+ * runtime and source; never relabel every non-Pi estimate as Claude's. */
+export function estimateProvenance(seat) {
+    const runtime = typeof seat["runtime"] === "string" ? seat["runtime"] : null;
+    const source = typeof seat["source"] === "string" && seat["source"].length > 0 ? seat["source"] : null;
+    if (source === "Claude statusline cost.total_cost_usd")
+        return "Claude statusline";
+    if (source)
+        return source;
+    if (runtime === "opencode")
+        return "OpenCode step_finish cost";
+    if (runtime === "claude-code")
+        return "Claude statusline";
+    if (runtime === "dsh")
+        return "DSH runner";
+    if (runtime)
+        return `${runtime} usage series`;
+    // Legacy daemons served only Claude's statusline estimate and no runtime
+    // field. Keep that pre-provenance shape readable without inventing a source
+    // for any newer runtime (they always carry runtime/source).
+    return "Claude statusline";
+}
 /** One labelled line per seat. Never prints a dollar figure the route didn't report. */
 export function costLine(seat) {
     if (seat["runtime"] === "pi")
@@ -78,7 +100,7 @@ export function costLine(seat) {
     if (seat.status === "reported") {
         const stale = seat["stale"] ? `, STALE (${seat["ageSeconds"] ?? "?"}s old; kept as history)` : "";
         const resets = Number(seat["resets"]) > 0 ? `, ${seat["resets"]} reset${seat["resets"] === 1 ? "" : "s"}` : "";
-        return `${seat.seatSession}  ${formatUsd(Number(seat["costUsd"]))} client-side estimate (Claude statusline) for session ${w.nativeSessionId} since ${w.since}, as of ${w.asOf}${resets}${stale}  ${tok(seat["tokens"])}`;
+        return `${seat.seatSession}  ${formatUsd(Number(seat["costUsd"]))} client-side estimate (${estimateProvenance(seat)}) for session ${w.nativeSessionId} since ${w.since}, as of ${w.asOf}${resets}${stale}  ${tok(seat["tokens"])}`;
     }
     if (seat.status === "absent")
         return `${seat.seatSession}  cost: not reported (${seat["reason"]})  ${tok(seat["tokens"])}`;
@@ -158,10 +180,11 @@ export function usageCommand(depsOverride) {
         .option("--seat <session>", "one seat session")
         .option("--json", "machine-readable (verbatim route payload)")
         .addHelpText("after", `
-Claude seats show the statusline's cost.total_cost_usd: a client-side estimate, cumulative for one
-native session since its last reset (not an invoice). Codex seats show tokens and that the inspected
-method reports no cost. A missing figure reads as missing and an old one as stale, never as $0; no
-subscription window is shown in dollars. Earlier values stay in rig usage series --lane context.
+Reported estimates name their own runtime/source: Claude seats show the statusline's
+cost.total_cost_usd and OpenCode seats show their step_finish cost, each a client-side estimate,
+cumulative for one native session since its last reset (not an invoice). DSH and Codex seats name
+the inspected no-cost method. A missing figure reads as missing and an old one as stale, never as
+$0; no subscription window is shown in dollars. Earlier values stay in rig usage series --lane context.
 With usage.pi_cost_facts on (default off), Pi seats show Pi's model-priced estimate summed over
 their own persisted session entries, each counted once; entries a fork copied in are shown apart and
 not counted, and an entry without a cost is named, not counted as zero.

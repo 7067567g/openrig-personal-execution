@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { compactNodeProjection, padCompactNodeRow, padNodeRow, formatDeclaredModel } from "../src/commands/ps.js";
+import { compactNodeProjection, padCompactNodeRow, padNodeRow, formatDeclaredModel, formatNonInterruptive } from "../src/commands/ps.js";
 
 // 0.5.1 — rig ps must surface RUNTIME and the DECLARED model.
 //
@@ -63,5 +63,43 @@ describe("rig ps — runtime + declared model", () => {
     const [compact] = compactNodeProjection([node()] as never);
     expect(compact.runtime).toBe("claude-code");
     expect(compact.model).toBeNull();
+  });
+
+  it("projects effective permission policy, launch posture, and non-interruptive tri-state", () => {
+    const [compact] = compactNodeProjection([node({
+      permissionPolicy: "builtin:yolo",
+      permissionPolicySource: "rig",
+      launchPosture: "full_bypass",
+      nonInterruptive: true,
+    })] as never);
+    expect(compact.permissionPolicy).toBe("builtin:yolo");
+    expect(compact.permissionPolicySource).toBe("rig");
+    expect(compact.launchPosture).toBe("full_bypass");
+    expect(compact.nonInterruptive).toBe(true);
+  });
+
+  it("old daemon without posture keys stays compact and invents no tri-state", () => {
+    const [compact] = compactNodeProjection([node()] as never);
+    expect(compact).not.toHaveProperty("permissionPolicy");
+    expect(compact).not.toHaveProperty("launchPosture");
+    expect(compact).not.toHaveProperty("nonInterruptive");
+  });
+
+  it("formats the non-interruptive tri-state without collapsing unknown to false", () => {
+    expect(formatNonInterruptive(true)).toBe("true");
+    expect(formatNonInterruptive(false)).toBe("false");
+    expect(formatNonInterruptive(null)).toBe("unknown");
+    expect(formatNonInterruptive(undefined)).toBe("unknown");
+  });
+
+  it("keeps unknown posture and non-interruptive unknown as null, never a guessed false", () => {
+    const [compact] = compactNodeProjection([node({
+      permissionPolicy: null,
+      permissionPolicySource: null,
+      launchPosture: "unknown",
+      nonInterruptive: null,
+    })] as never);
+    expect(compact.launchPosture).toBe("unknown");
+    expect(compact.nonInterruptive).toBeNull();
   });
 });

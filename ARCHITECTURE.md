@@ -85,8 +85,11 @@ and fails the build on a specifier with no `exports` entry. To share new daemon 
   implementations (OMP's extends Pi's) launch each runtime and project skills and files into it. `cmux.ts` and
   `compose-services-adapter.ts` cover other integrations.
 - **`db/`.** `connection.ts`, `migrate.ts`, `all-migrations.ts` and `migrations/`.
-- **`middleware/auth-bearer-token.ts`.** The bearer-token check for operator write routes, plus
-  the loopback and Tailscale bind detection used at startup.
+- **`middleware/auth-bearer-token.ts`.** The bearer-token checks, plus the loopback and
+  Tailscale bind detection used at startup. `mutationAuthMiddleware` is mounted once on
+  `/api/*` before the routers: mutating requests are admitted from a loopback peer, or from a
+  non-loopback peer only with the scoped operator/terminal bearer. When the daemon has a
+  non-loopback listener and no operator token is configured, remote mutations are refused.
 - **Live updates** go out as server-sent events: `routes/events.ts` uses Hono's `streamSSE`, and
   the TUI subscribes to `/api/activity/events`.
 - **State** lives in `$OPENRIG_HOME` (default `~/.openrig`). The database is `openrig.sqlite`
@@ -126,7 +129,7 @@ At commit `1ee477a3`. Run these from the repository root to refresh them.
 | Top-level `rig` commands | 88 | `grep -c 'program.addCommand(' packages/cli/src/index.ts` |
 | Runtime adapters | 8 keys (`claude-code`, `codex`, `pi`, `omp`, `opencode`, `dsh`, `stub`, `terminal`); the command counts 7 because `OmpRuntimeAdapter` extends `PiRuntimeAdapter` and `CliAgentRuntimeAdapter` serves both `opencode` and `dsh` | `git grep -l 'implements RuntimeAdapter' packages/daemon/src \| wc -l` |
 | MCP tools | 18 | `grep -c 'server.tool(' packages/cli/src/mcp-server.ts` |
-| Daemon `exports` subpaths | 23 | `node -p 'Object.keys(require("./packages/daemon/package.json").exports).length'` |
+| Daemon `exports` subpaths | 24 | `node -p 'Object.keys(require("./packages/daemon/package.json").exports).length'` |
 | Library scenarios | 16 | `grep -l '^scenario:' packages/test-system/scenarios/*.yaml \| wc -l` |
 
 ## Where to add things
@@ -286,6 +289,14 @@ guard, `mirror-skills --check` and `generate-context-packs --check`) and then th
 TUI suites. `npm run test:ui` runs the web UI suite separately. `npm run lint` typechecks all four
 packages.
 
+- **Managed entry guard** (`packages/daemon/src/entry-guard.ts`,
+  `packages/daemon/src/entry-guard-http.ts`, and `packages/cli/src/bin-wrapper.ts`). A managed
+  run home must carry a live launch record; L0/L1 judge CLI argv, L2 judges daemon boot, and L3
+  judges HTTP lifecycle writes before their handlers run. The six startup verbs are single-use;
+  `workflow-project`/route/resume/abort/revise are repeatable only inside the same live launch.
+  A missing/broken guard module fails closed. `npm run test:openrig:fast` and
+  `test:openrig:security` are self-contained product lanes; `test:openrig:workflow` is the
+  explicit opt-in workflow-group lane.
 - **Docs guard** (`scripts/check-docs-guard.mjs`). Under `docs/`, git may track only
   `docs/as-built/`, `docs/reference/`, `docs/releases/` and exactly `docs/DESIGN.md`;
   `.gitignore` ignores the rest of `docs/`. Remember that `docs/reference/` ships inside the npm

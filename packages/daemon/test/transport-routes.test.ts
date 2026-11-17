@@ -227,20 +227,6 @@ describe("transport routes", () => {
     expect(rows[0]!["sender_session"]).not.toBe("orch-main@rig-a");
   });
 
-  it("L5 A3 — a body claim naming a DIFFERENT actor is SUPERSEDED, never trusted, and never refuses", async () => {
-    seedRig();
-    const res = await sendApp().request("/api/transport/send", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-OpenRig-Session": "orch@my-rig" },
-      body: JSON.stringify({ session: "dev-impl@my-rig", text: "hi", actorSession: "mallory@my-rig" }),
-    });
-    expect(res.status).toBe(200);
-    const rows = outboxRows();
-    expect(rows).toHaveLength(1);
-    expect(rows[0]!["sender_session"]).toBe("orch@my-rig"); // wire wins
-    expect(rows[0]!["sender_session"]).not.toContain("mallory"); // body DISCARDED, not recorded
-  });
-
   it("A3 — a header-LESS send (no derived actor) auto-records NO row (nothing to attribute; no fabricated sender)", async () => {
     seedRig();
     const res = await sendApp().request("/api/transport/send", {

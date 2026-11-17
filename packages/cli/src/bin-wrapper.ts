@@ -117,8 +117,17 @@ export async function run(argv = process.argv, io: RunProgramIo = {}): Promise<v
   }
 
   const entryPath = resolveBinEntry(normalizedArgv[1], import.meta.url);
+
+  // S8 Wave A — L0 entry guard. Every path through this wrapper (lazy and full) sees
+  // the same argv here, which is why the hook lives in run() and not in a command.
+  // S10 r3 — this boundary FAILS CLOSED when the sibling guard module is missing or
+  // broken. A mixed/older install must not silently run lifecycle commands unguarded;
+  // the shared CLI error shape names the unusable module instead.
+  const guardedArgv = await applyEntryGuard(normalizedArgv, entryPath, io);
+  if (!guardedArgv) return;
+
   // A named command loads only its own module (lazy-program.ts), which ships beside the entry.
-  if (normalizedArgv.length > 2) {
+  if (guardedArgv.length > 2) {
     const lazyPath = path.join(path.dirname(entryPath), "lazy-program.js");
     let lazy: {
       createLazyProgram: (first: string | undefined) => Promise<import("commander").Command | null>;
@@ -127,13 +136,13 @@ export async function run(argv = process.argv, io: RunProgramIo = {}): Promise<v
     let program: import("commander").Command | null;
     try {
       lazy = await import(pathToFileURL(lazyPath).href) as typeof lazy;
-      program = await lazy.createLazyProgram(normalizedArgv[2]);
+      program = await lazy.createLazyProgram(guardedArgv[2]);
     } catch (error) {
-      await failedToLoad(normalizedArgv, error, io);
+      await failedToLoad(guardedArgv, error, io);
       return;
     }
     if (program) {
-      await lazy.runProgram(program, normalizedArgv, io);
+      await lazy.runProgram(program, guardedArgv, io);
       return;
     }
   }
@@ -147,18 +156,129 @@ export async function run(argv = process.argv, io: RunProgramIo = {}): Promise<v
   try {
     mod = await import(entryUrl) as typeof mod;
   } catch (error) {
-    await failedToLoad(normalizedArgv, error, io);
+    await failedToLoad(guardedArgv, error, io);
     return;
   }
   // Slice 17: the PUBLIC bin is the real front door — bare `rig` in a TTY
   // opens the TUI here, not only under a direct `node dist/index.js` run
   // (guard finding 1: importing the entry makes its isDirectRun false).
   // Feature-detected so the wrapper still runs an older sibling entry.
-  const owned = mod.runFrontDoor ? await mod.runFrontDoor(normalizedArgv) : false;
+  const owned = mod.runFrontDoor ? await mod.runFrontDoor(guardedArgv) : false;
   if (owned) return;
   // Slice 15: run through the shared error path so `--json` failures emit a JSON
   // error object with a nonzero exit instead of plain Commander text.
-  await mod.runProgram(mod.createProgram(), normalizedArgv, io);
+  await mod.runProgram(mod.createProgram(), guardedArgv, io);
+}
+
+interface EntryGuardModule {
+  stripAllowDirect: (argv: readonly string[]) => {
+    argv: string[];
+    allowDirect: boolean;
+    allowDirectReason?: string;
+  };
+  evaluateEntry: (
+    argv: readonly string[],
+    options: Record<string, unknown>,
+  ) => Promise<{
+    allow: boolean;
+    code: string | null;
+    reason: string;
+    verb: string | null;
+    mode: string;
+    homeKind: string;
+    warn: boolean;
+    launchId: string | null;
+  }>;
+  renderDenial: (
+    decision: unknown,
+    context: { argv: readonly string[]; home: string },
+    io?: RunProgramIo,
+  ) => number;
+  resolveGuardHome: (env?: NodeJS.ProcessEnv) => string;
+}
+
+const ENTRY_GUARD_UNAVAILABLE_CODE = "entry_guard_unavailable";
+
+/**
+ * Build the fail-closed error the wrapper reports when its sibling guard cannot be
+ * loaded. It carries the CLI's machine-readable `code` so both `--json` output and
+ * the human stderr line identify the mixed/broken install.
+ */
+function entryGuardUnavailable(dir: string, cause: string): Error & { code: string } {
+  const error = new Error(
+    `entry guard module at ${path.join(dir, "entry-guard.js")} is missing or unusable; ` +
+      `refusing to run a lifecycle command unguarded: ${cause}`,
+  ) as Error & { code: string };
+  error.code = ENTRY_GUARD_UNAVAILABLE_CODE;
+  return error;
+}
+
+/**
+ * Load the sibling guard module or throw `entry_guard_unavailable` (S10 r3).
+ *
+ * A wrapper next to an older sibling entry is a mixed install, and mixed installs
+ * are not evidence that the L0 boundary exists. Fail closed rather than returning
+ * the unguarded argv: otherwise every lifecycle command in that install silently
+ * bypasses the guard.
+ */
+async function loadEntryGuard(dir: string): Promise<EntryGuardModule> {
+  let mod: EntryGuardModule;
+  try {
+    mod = await import(pathToFileURL(path.join(dir, "entry-guard.js")).href) as EntryGuardModule;
+  } catch (error) {
+    throw entryGuardUnavailable(
+      dir,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+  const missing = [
+    ["stripAllowDirect", mod.stripAllowDirect],
+    ["evaluateEntry", mod.evaluateEntry],
+    ["renderDenial", mod.renderDenial],
+    ["resolveGuardHome", mod.resolveGuardHome],
+  ]
+    .filter(([, value]) => typeof value !== "function")
+    .map(([name]) => name);
+  if (missing.length > 0) {
+    throw entryGuardUnavailable(dir, `missing exports: ${missing.join(", ")}`);
+  }
+  return mod;
+}
+
+/**
+ * Strip the escape-hatch flags, run the L0 decision, and return the argv the rest of
+ * the wrapper (and Commander) must see. Returns null when the guard denied and the
+ * process was exited (nothing may run after a deny).
+ */
+async function applyEntryGuard(
+  argv: string[],
+  entryPath: string,
+  io: RunProgramIo,
+): Promise<string[] | null> {
+  let guard: EntryGuardModule;
+  try {
+    guard = await loadEntryGuard(path.dirname(entryPath));
+  } catch (error) {
+    await failedToLoad(argv, error, io);
+    return null;
+  }
+
+  const stripped = guard.stripAllowDirect(argv);
+  const home = guard.resolveGuardHome(process.env);
+  const decision = await guard.evaluateEntry(stripped.argv.slice(2), {
+    home,
+    env: process.env,
+    allowDirect: stripped.allowDirect,
+    ...(stripped.allowDirectReason !== undefined
+      ? { allowDirectReason: stripped.allowDirectReason }
+      : {}),
+  });
+  if (!decision.allow) {
+    const code = guard.renderDenial(decision, { argv: stripped.argv, home }, io);
+    (io.exit ?? ((c: number) => process.exit(c)))(code);
+    return null;
+  }
+  return stripped.argv;
 }
 
 if (isDirectRun()) {

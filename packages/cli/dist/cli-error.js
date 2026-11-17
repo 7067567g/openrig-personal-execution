@@ -48,7 +48,11 @@ export function isCleanCommanderExit(err) {
 export function formatCliError(err) {
     const e = err;
     const message = (e?.message ?? String(err)).replace(/^error:\s*/i, "").trim();
-    return { ok: false, error: { code: e?.code ?? "cli_error", message } };
+    const hint = typeof e?.hint === "string" && e.hint.trim() !== "" ? e.hint.trim() : undefined;
+    return {
+        ok: false,
+        error: { code: e?.code ?? "cli_error", message, ...(hint ? { hint } : {}) },
+    };
 }
 /** Recursively give every command exitOverride so parse errors throw instead of exiting. */
 export function applyExitOverride(program) {

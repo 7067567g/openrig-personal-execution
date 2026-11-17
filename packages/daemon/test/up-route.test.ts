@@ -7,7 +7,7 @@ import type { RigRepository } from "../src/domain/rig-repository.js";
 import type { SessionRegistry } from "../src/domain/session-registry.js";
 import type { SnapshotCapture } from "../src/domain/snapshot-capture.js";
 import type { RestoreOrchestrator } from "../src/domain/restore-orchestrator.js";
-import { createFullTestDb, createTestApp } from "./helpers/test-app.js";
+import { createFullTestDb, createTestApp, mockTmuxAdapter } from "./helpers/test-app.js";
 import { buildAttentionResponse } from "../src/routes/up.js";
 
 const VALID_SPEC = `
@@ -339,7 +339,66 @@ describe("Up API route", () => {
       const body = await res.json();
       expect(body.status).toBe("restored");
       expect(body.snapshotKind).toBe("auto-rehydrate");
+      expect(typeof body.snapshotId).toBe("string");
+      expect(typeof body.preRestoreSnapshotId).toBe("string");
       expect(body.warnings).toContain("No restore-usable snapshot existed; captured current DB state as auto-rehydrate snapshot for reboot recovery.");
+    });
+
+    it("does not persist an auto-rehydrate snapshot when structural pre-validation blocks", async () => {
+      const rig = rigRepo.createRig("auto-preflight-blocked");
+      const node = rigRepo.addNode(rig.id, "worker", { role: "worker", runtime: "claude-code" });
+      const session = sessionRegistry.registerSession(node.id, "worker@auto-preflight-blocked");
+      sessionRegistry.updateStatus(session.id, "stopped");
+      insertStartupContextRow(db, node.id);
+      const missingPath = `/tmp/openrig-auto-preflight-missing-${Date.now()}.md`;
+      db.prepare("UPDATE node_startup_context SET resolved_files_json = ? WHERE node_id = ?").run(
+        JSON.stringify([{
+          path: "startup.md",
+          absolutePath: missingPath,
+          ownerRoot: "/tmp",
+          deliveryHint: "guidance_merge",
+          required: true,
+          appliesOn: ["restore"],
+        }]),
+        node.id,
+      );
+
+      const snapshotsBefore = db.prepare("SELECT COUNT(*) AS n FROM snapshots WHERE rig_id = ?").get(rig.id) as { n: number };
+      const res = await app.request("/api/up", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sourceRef: "auto-preflight-blocked", freshLogicalIds: ["worker"] }),
+      });
+
+      expect(res.status).toBe(409);
+      const body = await res.json();
+      expect(body.code).toBe("pre_restore_validation_failed");
+      expect(body.blockers[0].path).toBe(missingPath);
+      const snapshotsAfter = db.prepare("SELECT COUNT(*) AS n FROM snapshots WHERE rig_id = ?").get(rig.id) as { n: number };
+      expect(snapshotsAfter.n).toBe(snapshotsBefore.n);
+    });
+
+    it("does not persist an auto-rehydrate snapshot when live-session classification blocks", async () => {
+      const tmux = mockTmuxAdapter();
+      (tmux.hasSession as ReturnType<typeof vi.fn>).mockResolvedValue(true);
+      const live = createTestApp(db, { tmux });
+      const rig = live.rigRepo.createRig("auto-live-blocked");
+      const node = live.rigRepo.addNode(rig.id, "worker", { role: "worker", runtime: "claude-code" });
+      const session = live.sessionRegistry.registerSession(node.id, "worker@auto-live-blocked");
+      live.sessionRegistry.updateStatus(session.id, "running");
+      insertStartupContextRow(db, node.id);
+
+      const snapshotsBefore = db.prepare("SELECT COUNT(*) AS n FROM snapshots WHERE rig_id = ?").get(rig.id) as { n: number };
+      const res = await live.app.request("/api/up", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sourceRef: "auto-live-blocked" }),
+      });
+
+      expect(res.status).toBe(409);
+      expect((await res.json()).code).toBe("rig_not_stopped");
+      const snapshotsAfter = db.prepare("SELECT COUNT(*) AS n FROM snapshots WHERE rig_id = ?").get(rig.id) as { n: number };
+      expect(snapshotsAfter.n).toBe(snapshotsBefore.n);
     });
 
     it("plans from the detached current occupant when an older restore snapshot names a prior occupant", async () => {

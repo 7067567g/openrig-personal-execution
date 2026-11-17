@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -219,6 +219,48 @@ test("a broken relative doc link is an error but an inline example is not", () =
       ["docs/reference/rig-spec.md links missing.md, which does not exist"],
     );
   });
+});
+
+test("a relative doc link that escapes the repository is rejected", () => {
+  withFixture((root) => {
+    write(
+      root,
+      "docs/reference/page.md",
+      "See [outside](../../../../outside/README.md).\n",
+    );
+    const findings = checkDocLinks(root);
+    assert.deepEqual(
+      findings.map((f) => f.message),
+      ["docs/reference/page.md links ../../../../outside/README.md, which is outside the repository"],
+    );
+  });
+});
+
+test("a symlinked doc target that resolves outside the repository is rejected", (t) => {
+  const outside = mkdtempSync(join(tmpdir(), "check-docs-facts-outside-"));
+  try {
+    withFixture((root) => {
+      write(root, "docs/reference/page.md", "See [outside](escape).\n");
+      try {
+        symlinkSync(outside, join(root, "docs/reference/escape"));
+      } catch (error) {
+        if (error.code === "EPERM" || error.code === "EACCES" || error.code === "ENOSYS") {
+          t.skip(`symlink unavailable on this platform: ${error.code}`);
+          return;
+        }
+        throw error;
+      }
+      const findings = checkDocLinks(root);
+      assert.ok(
+        findings.some(
+          (f) => f.code === "docs-link" && f.message.includes("outside the repository"),
+        ),
+        JSON.stringify(findings),
+      );
+    });
+  } finally {
+    rmSync(outside, { recursive: true, force: true });
+  }
 });
 
 test("a drifted queue-state list fails", () => {

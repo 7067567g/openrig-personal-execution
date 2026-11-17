@@ -91,8 +91,15 @@ export declare class ContextUsageStore {
     readCliAgentAndNormalize(input: {
         runtime: "opencode" | "dsh";
         sessionName: string;
+        /** Optional explicit current-tenure fence. The DB-backed resolver below is
+         * the production path; tests and future callers may inject it directly. */
+        occupantGeneration?: string;
     }): ContextUsage;
-    /** Map a validated runner usage sidecar to the shared context-usage shape. */
+    /** Resolve the live tenure for a seat name without importing SessionRegistry
+     * (the store owns the same DB). Any failure is UNKNOWN, not a fabricated match. */
+    private resolveOccupantGenerationForSession;
+    /** Map a validated runner usage sidecar to the shared context-usage shape.
+     * Missing token components remain null; they are never added as zero. */
     private normalizeCliAgentUsage;
     /** Normalize raw sidecar data into a ContextUsage record. */
     normalizeSample(raw: SidecarRaw | null): ContextUsage;

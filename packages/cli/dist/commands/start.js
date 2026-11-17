@@ -115,19 +115,35 @@ export function startCommand(depsOverride) {
 Examples:
   rig start                         Interactive: daemon + kernel + pick-and-restore
   rig start --last                  Headless: restore everything that was running, except rigs stopped on purpose
-  rig start --all                   Headless: restore all rigs with restore-usable snapshots
+  rig start --all                   Headless: restore rigs that were last running, except rigs stopped on purpose
+  rig start --all --allow-downed    Headless: also restore rigs stopped on purpose (explicit override)
   rig start --rigs prod-rig dev-rig Headless: restore only the named rigs
+  rig start --plan            Read-only preview; requires a running daemon
 `);
     const getDepsF = () => depsOverride ?? { lifecycleDeps: realDeps(), clientFactory: (url) => new DaemonClient(url) };
     cmd
         .option("--last", "Headless: restore all rigs that were last running; a rig stopped on purpose (with rig down or rig seat stop) stays down (zero prompts)")
-        .option("--all", "Headless: restore all rigs with restore-usable snapshots (zero prompts)")
+        .option("--all", "Headless: restore rigs with restore-usable snapshots, except rigs stopped on purpose (zero prompts)")
         .option("--rigs <names...>", "Headless: restore only the named rigs (zero prompts)")
+        .option("--plan", "Preview restore candidates and planned actions without starting/restoring anything; requires a running daemon")
+        .option("--allow-unknown-stop", "With --last or --all: allow restoring rigs whose seat stop intent could not be read (default: fail closed)")
+        .option("--allow-downed", "With --all: also restore rigs stopped on purpose with rig down or rig seat stop (explicit override)")
         .option("--json", "JSON output for agents")
         .action(async (opts) => {
         const deps = getDepsF();
+        if (opts.allowDowned && !opts.all) {
+            console.error("--allow-downed only applies to --all. Use --rigs <name> when you intentionally want one downed rig back.");
+            process.exitCode = 1;
+            return;
+        }
         // ---- PHASE 1: ensure daemon is running ----
         let status = await getDaemonStatus(deps.lifecycleDeps);
+        if (opts.plan && status.state !== "running") {
+            console.error("--plan requires an already-running daemon; no daemon was started and nothing was restored.");
+            console.error("Start it first with: rig daemon start");
+            process.exitCode = 1;
+            return;
+        }
         if (status.state !== "running") {
             if (!opts.json)
                 console.log("Starting daemon...");
@@ -250,8 +266,11 @@ Examples:
         const previewErrors = [];
         // Not errors: the run still succeeds. Only --last adds them (seat_status_unreadable).
         const warnings = [];
-        // --all wins over --last; only --last reads the seats.
-        const lastOnly = Boolean(opts.last && !opts.all);
+        // --all wins over --last. Both intent-sensitive headless modes read the
+        // seats; --plan reads them too so its preview can mark intentionally
+        // stopped rigs. Explicit --rigs and the interactive picker stay explicit.
+        const intentSensitive = Boolean(opts.all || opts.last);
+        const inspectStopIntent = Boolean(opts.all || opts.last || opts.plan);
         for (const rig of allSummaries) {
             if (rig.name === "kernel")
                 continue;
@@ -271,14 +290,14 @@ Examples:
                     }
                     catch { /* degrade: lastActivity stays null */ }
                     let lastStop = null;
-                    if (lastOnly) {
+                    if (inspectStopIntent) {
                         lastStop = "unknown";
                         try {
                             const nodesRes = await client.get(`/api/rigs/${encodeURIComponent(rig.id)}/nodes`);
                             if (nodesRes.status === 200)
                                 lastStop = lastStopState(nodesRes.data);
                         }
-                        catch { /* lastStop stays unknown; --last restores the rig with a warning */ }
+                        catch { /* lastStop stays unknown; --last restores only with --allow-unknown-stop */ }
                     }
                     candidates.push({
                         rigId: rig.id,
@@ -313,7 +332,7 @@ Examples:
                 console.log(JSON.stringify({
                     status: previewErrors.length > 0 ? "started_with_errors" : "started",
                     candidates: [],
-                    keptDown: lastOnly ? [] : undefined,
+                    keptDown: intentSensitive ? [] : undefined,
                     restoredRigs: [],
                     previewErrors: previewErrors.length > 0 ? previewErrors : undefined,
                 }));
@@ -330,23 +349,98 @@ Examples:
                 process.exitCode = 1;
             return;
         }
+        // ---- PHASE 3b: --plan is a read-only preview; never restore ----
+        if (opts.plan) {
+            let previewCandidates = [...candidates];
+            if (opts.rigs) {
+                previewCandidates = previewCandidates.filter((c) => opts.rigs.includes(c.rigName));
+                const missing = opts.rigs.filter((n) => !candidates.some((c) => c.rigName === n));
+                if (missing.length > 0) {
+                    console.error(`Rig(s) not found in candidate set: ${missing.join(", ")}`);
+                    process.exitCode = 1;
+                    return;
+                }
+            }
+            const plan = previewCandidates.map((c) => ({
+                rigId: c.rigId,
+                rigName: c.rigName,
+                lifecycleState: c.lifecycleState,
+                status: c.lastStop === "down" ? "intentionally_stopped" : c.lastStop === "unknown" ? "unknown_stop_intent" : "candidate",
+                intendedActions: (c.preview?.nodes ?? []).map((n) => ({
+                    logicalId: n.logicalId,
+                    intendedAction: n.intendedAction,
+                    reason: n.reason ?? null,
+                })),
+            }));
+            const plannedKeptDown = opts.all && opts.allowDowned
+                ? []
+                : previewCandidates.filter((c) => c.lastStop === "down");
+            if (opts.json) {
+                console.log(JSON.stringify({
+                    status: "planned",
+                    command: "rig start --plan",
+                    candidates: plan,
+                    keptDown: plannedKeptDown.map(keptDownEntry),
+                    previewErrors: previewErrors.length > 0 ? previewErrors : undefined,
+                }));
+            }
+            else {
+                console.log(`\n${plan.length} rig(s) in restore plan (no restore performed):\n`);
+                for (const p of plan) {
+                    console.log(`  ${p.rigName}  (${p.lifecycleState}, ${p.status})`);
+                    for (const a of p.intendedActions)
+                        console.log(`    ${a.logicalId}: ${a.intendedAction}${a.reason ? ` (${a.reason})` : ""}`);
+                }
+            }
+            if (previewErrors.length > 0)
+                process.exitCode = 1;
+            return;
+        }
         // ---- PHASE 4: selection (id-grounded, rev1 BLOCKING b4c6ada4) ----
         let selectedCandidates;
-        // --last keeps down a rig whose every launched seat carries the recorded stop intent, and
-        // names the command that brings it back. Any other rig, including one whose seats could not
-        // be read (a warning, not an error), is restored as --all would. --all and --rigs restore all.
-        const keptDown = lastOnly ? candidates.filter((c) => c.lastStop === "down") : [];
+        // --all and --last keep down a rig whose every launched seat carries the
+        // recorded stop intent. --all needs an explicit --allow-downed override;
+        // --last names the command that brings it back. Explicit --rigs remains a
+        // deliberate override. Unknown intent fails closed in both headless modes.
+        const keptDown = intentSensitive
+            ? candidates.filter((c) => c.lastStop === "down" && !(opts.all && opts.allowDowned))
+            : [];
+        const unknownStop = intentSensitive ? candidates.filter((c) => c.lastStop === "unknown") : [];
+        if (unknownStop.length > 0 && !opts.allowUnknownStop) {
+            const names = unknownStop.map((c) => c.rigName).join(", ");
+            const modeLabel = opts.all ? "--all" : "--last";
+            if (opts.json) {
+                console.log(JSON.stringify({
+                    status: "blocked",
+                    code: "unknown_stop_intent",
+                    rigs: unknownStop.map((c) => c.rigName),
+                    nextAction: "Inspect with rig ps and rig start --plan; rerun with --allow-unknown-stop only if intentional.",
+                }));
+            }
+            else {
+                console.error(`  Refusing ${modeLabel}: cannot read stop intent for: ${names}`);
+                console.error("  Nothing was restored. Inspect with: rig ps / rig start --plan");
+                console.error("  If you intentionally want to restore them, rerun with --allow-unknown-stop.");
+            }
+            process.exitCode = 1;
+            return;
+        }
+        for (const c of unknownStop) {
+            const message = "restored because its seat statuses could not be read (--allow-unknown-stop)";
+            warnings.push({ rigId: c.rigId, rigName: c.rigName, code: "seat_status_unreadable", message });
+            if (!opts.json)
+                console.error(`  ${c.rigName}: ${message}`);
+        }
         if (opts.all) {
-            selectedCandidates = [...candidates];
+            selectedCandidates = candidates.filter((c) => c.lastStop !== "down" || opts.allowDowned);
+            if (!opts.json) {
+                for (const c of keptDown) {
+                    console.log(`  ${c.rigName}: stopped on purpose (with rig down or rig seat stop), so --all leaves it down. Bring it back: ${restoreCommand(c)} or rerun with --allow-downed`);
+                }
+            }
         }
         else if (opts.last) {
             selectedCandidates = candidates.filter((c) => c.lastStop !== "down");
-            for (const c of candidates.filter((x) => x.lastStop === "unknown")) {
-                const message = "selected for restore because its seat statuses could not be read";
-                warnings.push({ rigId: c.rigId, rigName: c.rigName, code: "seat_status_unreadable", message });
-                if (!opts.json)
-                    console.error(`  ${c.rigName}: ${message}`);
-            }
             if (!opts.json) {
                 for (const c of keptDown)
                     console.log(`  ${c.rigName}: stopped on purpose (with rig down or rig seat stop), so --last leaves it down. Bring it back: ${restoreCommand(c)}`);
@@ -397,7 +491,7 @@ Examples:
         if (selectedCandidates.length === 0) {
             if (!opts.json)
                 console.log("No rigs selected for restore.");
-            else if (lastOnly) {
+            else if (intentSensitive) {
                 console.log(JSON.stringify({
                     status: previewErrors.length > 0 ? "started_with_errors" : "started",
                     uiUrl,
@@ -407,7 +501,7 @@ Examples:
                     previewErrors: previewErrors.length > 0 ? previewErrors : undefined,
                 }));
             }
-            if (lastOnly && previewErrors.length > 0)
+            if (intentSensitive && previewErrors.length > 0)
                 process.exitCode = 1;
             return;
         }
@@ -415,6 +509,9 @@ Examples:
         if (!opts.json)
             console.log(`\nRestoring ${selectedCandidates.length} rig(s)...\n`);
         const results = [];
+        // Any non-2xx restore/fresh request is a failure even when its error code
+        // is one this CLI did not know about when the set below was written.
+        let restoreRequestFailed = false;
         for (const candidate of selectedCandidates) {
             const rigName = candidate.rigName;
             const rigId = candidate.rigId;
@@ -438,6 +535,7 @@ Examples:
                 // as a success. The daemon returns non-2xx JSON payloads (rig_not_stopped,
                 // pre_restore_validation_failed, ambiguous_name) without throwing.
                 if (res.status >= 400) {
+                    restoreRequestFailed = true;
                     const code = res.data["code"];
                     const errorText = String(res.data["error"] ?? "restore failed");
                     if (code === "pre_restore_validation_failed") {
@@ -457,6 +555,18 @@ Examples:
                 const resStatus = res.data["status"];
                 const nodes = res.data["nodes"] ?? [];
                 const rigResult = res.data["rigResult"];
+                let finalNodes = nodes;
+                let finalStatus = rigResult ?? resStatus;
+                let finalSnapshotId = typeof res.data["snapshotId"] === "string" ? res.data["snapshotId"] : undefined;
+                let finalSnapshotKind = typeof res.data["snapshotKind"] === "string" ? res.data["snapshotKind"] : undefined;
+                let finalPreRestoreSnapshotId = res.data["preRestoreSnapshotId"] === null
+                    ? null
+                    : typeof res.data["preRestoreSnapshotId"] === "string"
+                        ? res.data["preRestoreSnapshotId"]
+                        : undefined;
+                let finalWarnings = Array.isArray(res.data["warnings"])
+                    ? res.data["warnings"].filter((warning) => typeof warning === "string")
+                    : [];
                 if (!opts.json) {
                     console.log(`  ${rigName}: ${rigResult ?? resStatus}`);
                     for (const n of nodes) {
@@ -482,27 +592,58 @@ Examples:
                                 accepted.push(n.logicalId);
                         }
                         if (accepted.length > 0) {
-                            try {
-                                const freshRes = await client.post(`/api/rigs/${encodeURIComponent(rigId)}/up`, { plan: false, freshLogicalIds: accepted }, { timeoutMs: LONG_RUNNING_UP_TIMEOUT_MS });
-                                if (freshRes.status >= 400) {
-                                    const freshError = String(freshRes.data["error"] ?? "fresh-prime failed");
-                                    console.error(`    Fresh-prime for ${rigName}: ${freshError} (HTTP ${freshRes.status})`);
-                                }
-                                else {
-                                    const freshNodes = freshRes.data["nodes"] ?? [];
-                                    for (const fn of freshNodes.filter((fn) => accepted.includes(fn.logicalId))) {
-                                        if (!opts.json)
-                                            console.log(`    ${fn.logicalId}: ${fn.status}`);
+                            const freshWarnings = [];
+                            for (const logicalId of accepted) {
+                                const awaitingNode = awaiting.find((node) => node.logicalId === logicalId);
+                                const seatRef = `${logicalId}@${rigName}`;
+                                // A whole-rig /up retry is refused as rig_not_stopped once a sibling
+                                // became live. Fresh-prime exactly the held seats through the same
+                                // per-seat route as `rig seat launch <seat> --fresh --reason`.
+                                const reason = `rig start fresh-prime for ${logicalId} after awaiting-decision (${awaitingNode?.error ?? "original session unresumable"})`;
+                                try {
+                                    const freshRes = await client.post(`/api/seat/launch/${encodeURIComponent(seatRef)}`, { fresh: true, reason }, { timeoutMs: LONG_RUNNING_UP_TIMEOUT_MS });
+                                    const body = freshRes.data;
+                                    const daemonStatus = typeof body["status"] === "string" ? body["status"] : undefined;
+                                    if (Array.isArray(body["warnings"])) {
+                                        freshWarnings.push(...body["warnings"].filter((warning) => typeof warning === "string"));
                                     }
+                                    if (freshRes.status >= 400 || body["ok"] !== true || daemonStatus === "attention_required" || daemonStatus === "failed") {
+                                        restoreRequestFailed = true;
+                                        const status = daemonStatus === "attention_required" ? "attention_required" : "failed";
+                                        const error = typeof body["message"] === "string"
+                                            ? body["message"]
+                                            : typeof body["error"] === "string"
+                                                ? body["error"]
+                                                : `fresh launch failed (HTTP ${freshRes.status})`;
+                                        finalNodes = mergeRestoreNodes(finalNodes, [{ logicalId, status, error }]);
+                                        if (!opts.json)
+                                            console.error(`    ${logicalId}: ${status} -- ${error}`);
+                                        continue;
+                                    }
+                                    const launchedSeat = body["seat"];
+                                    const outcomeLogicalId = typeof launchedSeat?.logicalId === "string" ? launchedSeat.logicalId : logicalId;
+                                    finalNodes = mergeRestoreNodes(finalNodes, [{ logicalId: outcomeLogicalId, status: "fresh-primed" }]);
+                                    if (!opts.json)
+                                        console.log(`    ${outcomeLogicalId}: fresh-primed`);
+                                }
+                                catch (err) {
+                                    restoreRequestFailed = true;
+                                    const error = err instanceof DaemonConnectionError
+                                        ? "fresh launch timed out; outcome unknown. Verify with: rig ps"
+                                        : err instanceof Error ? err.message : String(err);
+                                    finalNodes = mergeRestoreNodes(finalNodes, [{ logicalId, status: "failed", error }]);
+                                    if (!opts.json)
+                                        console.error(`    ${logicalId}: fresh launch failed -- ${error}`);
                                 }
                             }
-                            catch (err) {
-                                if (err instanceof DaemonConnectionError) {
-                                    console.error(`    Fresh-prime timed out for ${rigName}; the daemon may still be processing. Verify with: rig ps`);
-                                }
-                                else {
-                                    throw err;
-                                }
+                            if (freshWarnings.length > 0) {
+                                finalWarnings = [...new Set([...finalWarnings, ...freshWarnings])];
+                            }
+                            // An operator-approved fresh-prime is a deliberate recovery, not
+                            // the original awaiting-decision failure. Clear the stale failure
+                            // status only when every final node is actually running.
+                            if (finalNodes.length > 0 && finalNodes.every((n) => CLEAN_RESTORE_NODE_STATUSES.has(n.status))) {
+                                finalStatus = "fully_restored";
                             }
                         }
                         else if (!opts.json) {
@@ -513,11 +654,27 @@ Examples:
                         // Headless: report honestly, no auto-substitute.
                         for (const n of awaiting) {
                             if (!opts.json)
-                                console.error(`    ${n.logicalId}: awaiting-decision -- to fresh-prime: rig up --existing ${rigName} --fresh ${n.logicalId}`);
+                                console.error(`    ${n.logicalId}: awaiting-decision -- to fresh-prime this seat: rig seat launch ${n.logicalId}@${rigName} --fresh --reason "..."`);
                         }
                     }
                 }
-                results.push({ rigName, status: rigResult ?? resStatus, nodes });
+                if (!opts.json) {
+                    if (finalSnapshotId)
+                        console.log(`    snapshot: ${finalSnapshotId} (${finalSnapshotKind ?? "unknown"})`);
+                    if (finalPreRestoreSnapshotId !== undefined)
+                        console.log(`    pre-restore snapshot: ${finalPreRestoreSnapshotId ?? "none"}`);
+                    for (const warning of finalWarnings)
+                        console.error(`    warning: ${warning}`);
+                }
+                results.push({
+                    rigName,
+                    status: finalStatus,
+                    snapshotId: finalSnapshotId,
+                    snapshotKind: finalSnapshotKind,
+                    preRestoreSnapshotId: finalPreRestoreSnapshotId,
+                    warnings: finalWarnings.length > 0 ? finalWarnings : undefined,
+                    nodes: finalNodes,
+                });
             }
             catch (err) {
                 if (err instanceof DaemonConnectionError) {
@@ -536,21 +693,55 @@ Examples:
                 status: previewErrors.length > 0 ? "started_with_errors" : "started",
                 uiUrl,
                 candidates: candidates.map((c) => ({ rigName: c.rigName, lifecycleState: c.lifecycleState })),
-                keptDown: lastOnly ? keptDown.map(keptDownEntry) : undefined,
+                keptDown: intentSensitive ? keptDown.map(keptDownEntry) : undefined,
                 restoredRigs: results,
                 previewErrors: previewErrors.length > 0 ? previewErrors : undefined,
                 warnings: warnings.length > 0 ? warnings : undefined,
             }));
         }
-        // Exit code: 1 if any rig has non-clean outcome. Include HTTP error codes
-        // and non-clean rigResult values (partially_restored, failed, not_attempted).
-        const NON_CLEAN_STATUSES = new Set(["timeout", "error", "skipped", "partially_restored", "failed", "not_attempted", "rig_not_stopped", "ambiguous_name", "pre_restore_validation_failed"]);
-        const hasFailure = previewErrors.length > 0 || results.some((r) => NON_CLEAN_STATUSES.has(r.status) ||
-            r.nodes.some((n) => n.status === "failed" || n.status === "awaiting-decision"));
+        // Exit code: 1 if any rig has a non-clean outcome. HTTP failures are
+        // tracked independently so an unknown/new daemon error code cannot look
+        // clean. Per-node truth owns the rest: anything outside the explicit
+        // running/clean vocabulary is a failure, including attention_required.
+        const NON_CLEAN_STATUSES = new Set([
+            "timeout",
+            "error",
+            "skipped",
+            "partially_restored",
+            "failed",
+            "not_attempted",
+            "rig_not_stopped",
+            "ambiguous_name",
+            "pre_restore_validation_failed",
+            "restore_in_progress",
+            "service_boot_failed",
+            "restore_error",
+            "restore_failed",
+            "attention_required",
+            "startup_failed",
+            "launch_failed",
+            "provider_prerequisite",
+            "no_snapshot",
+            "snapshot_not_found",
+            "snapshot_wrong_rig",
+            "snapshot_unusable",
+            "no_usable_snapshot",
+            "rig_not_found",
+            "operation_in_progress",
+        ]);
+        const hasFailure = previewErrors.length > 0 || restoreRequestFailed || results.some((r) => NON_CLEAN_STATUSES.has(r.status) ||
+            r.nodes.some((n) => !CLEAN_RESTORE_NODE_STATUSES.has(n.status)));
         if (hasFailure)
             process.exitCode = 1;
     });
     return cmd;
+}
+const CLEAN_RESTORE_NODE_STATUSES = new Set(["resumed", "rebuilt", "fresh", "fresh-primed", "operator_recovered"]);
+function mergeRestoreNodes(existing, updates) {
+    const byLogicalId = new Map(existing.map((node) => [node.logicalId, node]));
+    for (const update of updates)
+        byLogicalId.set(update.logicalId, update);
+    return [...byLogicalId.values()];
 }
 function restoreCommand(c) {
     return `rig start --rigs ${c.rigName}`;

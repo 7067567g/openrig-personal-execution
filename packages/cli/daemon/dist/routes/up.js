@@ -109,8 +109,40 @@ async function restoreByRigId(rigId, rigName, deps, c, freshLogicalIds, plan, no
     if (plan) {
         return c.json(buildRestorePlanPreview(rig, snapshot ?? null, collectPreviewSessionRows(snapshotRepo.db, rig, snapshot ?? null), freshLogicalIds, Date.now(), readFreshOccupantRelations(snapshotRepo.db, rig.rig.id)), 200);
     }
+    if (!restoreOrchestrator) {
+        return c.json({ error: "Restore orchestrator not available" }, 500);
+    }
+    const fs = await import("node:fs");
+    const fsOps = { exists: (p) => fs.existsSync(p) };
     if (!snapshot) {
-        snapshot = deps.snapshotCapture.captureSnapshot(rigId, "auto-rehydrate");
+        // Classify live/unknown sessions and validate the prepared payload BEFORE
+        // persisting an auto-rehydrate snapshot. A blocked restore must not leave
+        // a new snapshot behind as a side effect.
+        const preparedData = deps.snapshotCapture.prepareSnapshotData(rigId, "auto-rehydrate");
+        const preflight = await restoreOrchestrator.preflightSnapshotData(preparedData, {
+            fsOps,
+            freshLogicalIds,
+        });
+        if (!preflight.ok) {
+            if (preflight.code === "rig_not_stopped") {
+                return c.json({ error: preflight.message, code: preflight.code }, 409);
+            }
+            return c.json({
+                status: "not_attempted",
+                rigId,
+                rigName,
+                error: preflight.message,
+                code: preflight.code,
+                snapshotKind: "auto-rehydrate",
+                rigResult: "not_attempted",
+                warnings: preflight.validation.warnings,
+                blockers: preflight.validation.blockers,
+                intendedRoster: preflight.topology.intendedRoster,
+                excludedNodes: preflight.topology.excludedNodes,
+                remediation: preflight.validation.blockers.map((blocker) => blocker.remediation),
+            }, 409);
+        }
+        snapshot = deps.snapshotCapture.captureSnapshot(rigId, "auto-rehydrate", { preparedData });
         snapshotSelection = {
             ...summarizeSnapshot(snapshot),
             mode: "automatic",
@@ -119,13 +151,9 @@ async function restoreByRigId(rigId, rigName, deps, c, freshLogicalIds, plan, no
         };
         capturedCurrentState = true;
     }
-    if (!restoreOrchestrator) {
-        return c.json({ error: "Restore orchestrator not available" }, 500);
-    }
-    const fs = await import("node:fs");
     const result = await restoreOrchestrator.restore(snapshot.id, {
         adapters: deps.runtimeAdapters ?? {},
-        fsOps: { exists: (p) => fs.existsSync(p) },
+        fsOps,
         // OPR.0.3.4.2 — operation B opt-in seats from `rig up --existing --fresh`.
         freshLogicalIds,
         nonInterruptive,
@@ -157,6 +185,7 @@ async function restoreByRigId(rigId, rigName, deps, c, freshLogicalIds, plan, no
         rigName,
         snapshotId: snapshot.id,
         snapshotKind: snapshot.kind,
+        preRestoreSnapshotId: result.result.preRestoreSnapshotId,
         rigResult: result.result.rigResult,
         nodes: result.result.nodes,
         warnings: capturedCurrentState

@@ -149,6 +149,40 @@ export class RestoreOrchestrator {
         this.listProcesses = deps.listProcesses;
         this.appliedLaunchStore = new AppliedLaunchObservationStore(deps.db);
     }
+    /**
+     * Read-only restore preflight: classify DB-running sessions against tmux and
+     * run the same structural `validatePreRestore` used by restore(), without
+     * capturing a snapshot or mutating a session. Auto-rehydrate routes call this
+     * on the prepared payload BEFORE persisting the capture.
+     */
+    async preflightSnapshotData(snapshotData, opts) {
+        const rigId = typeof snapshotData.rig?.id === "string" ? snapshotData.rig.id : "";
+        const classification = await this.classifyRunningSessions(rigId);
+        if (classification.live.length > 0 || classification.unknown.length > 0) {
+            return {
+                ok: false,
+                code: "rig_not_stopped",
+                message: `Rig ${rigId} has live sessions. Stop the rig with 'rig down' before restoring, or use the latest auto-pre-down snapshot.`,
+            };
+        }
+        const validation = validatePreRestore(snapshotData, {
+            fsOps: opts?.fsOps,
+            servicesRecord: this.rigRepo.getServicesRecord(rigId),
+            freshLogicalIds: opts?.freshLogicalIds,
+            currentRuntimes: Object.fromEntries((this.rigRepo.getRig(rigId)?.nodes ?? []).map((current) => [current.logicalId, current.runtime])),
+        });
+        const topology = resolveSnapshotRestoreTopology(snapshotData);
+        if (validation.blockers.length > 0) {
+            return {
+                ok: false,
+                code: "pre_restore_validation_failed",
+                message: "Restore pre-validation failed; no restore mutation was attempted.",
+                validation,
+                topology,
+            };
+        }
+        return { ok: true, classification, validation, topology };
+    }
     async restore(snapshotId, opts) {
         // 1. Load snapshot
         const snapshot = this.snapshotRepo.getSnapshot(snapshotId);
@@ -169,46 +203,41 @@ export class RestoreOrchestrator {
         if (selectionOutcome && !selectionOutcome.ok)
             return selectionOutcome;
         const snapshotSelection = opts?.snapshotSelection ?? selectionOutcome?.selection;
-        // Classify DB-running sessions against tmux reality WITHOUT mutating DB.
-        // This determines whether the rig is safe to restore before any state
-        // changes occur — critical for pre_restore snapshot ordering (snapshot
-        // must capture original DB state, not post-reconciliation state).
-        const classification = await this.classifyRunningSessions(rigId);
-        if (classification.live.length > 0 || classification.unknown.length > 0) {
-            return { ok: false, code: "rig_not_stopped", message: `Rig ${rigId} has live sessions. Stop the rig with 'rig down' before restoring, or use the latest auto-pre-down snapshot.` };
-        }
         // Per-rig concurrency lock
         if (this.activeRestores.has(rigId)) {
             return { ok: false, code: "restore_in_progress", message: `Restore already in progress for rig ${rigId}` };
         }
         this.activeRestores.add(rigId);
         try {
-            const validation = validatePreRestore(snapshot.data, {
+            // ONE read-only preflight owns both checks: DB-running sessions must not
+            // be live/unknown, and the snapshot payload must pass structural
+            // validation. Auto-rehydrate routes call the same method before capture.
+            const preflight = await this.preflightSnapshotData(snapshot.data, {
                 fsOps: opts?.fsOps,
-                servicesRecord: this.rigRepo.getServicesRecord(rigId),
                 freshLogicalIds: opts?.freshLogicalIds,
-                currentRuntimes: Object.fromEntries((this.rigRepo.getRig(rigId)?.nodes ?? []).map((current) => [current.logicalId, current.runtime])),
             });
-            const topology = resolveSnapshotRestoreTopology(snapshot.data);
-            if (validation.blockers.length > 0) {
+            if (!preflight.ok) {
+                if (preflight.code === "rig_not_stopped")
+                    return preflight;
                 const result = {
                     snapshotId,
                     preRestoreSnapshotId: null,
                     rigResult: "not_attempted",
                     nodes: [],
-                    warnings: validation.warnings,
-                    blockers: validation.blockers,
+                    warnings: preflight.validation.warnings,
+                    blockers: preflight.validation.blockers,
                     snapshotSelection,
-                    intendedRoster: topology.intendedRoster,
-                    excludedNodes: topology.excludedNodes,
+                    intendedRoster: preflight.topology.intendedRoster,
+                    excludedNodes: preflight.topology.excludedNodes,
                 };
                 return {
                     ok: false,
                     code: "pre_restore_validation_failed",
-                    message: "Restore pre-validation failed; no restore mutation was attempted.",
+                    message: preflight.message,
                     result,
                 };
             }
+            const { classification, validation, topology } = preflight;
             // 2. Capture pre-restore snapshot BEFORE any DB mutations —
             // DB still reflects original session state (running for stale sessions)
             const preRestoreSnapshot = this.snapshotCapture.captureSnapshot(rigId, "pre_restore");

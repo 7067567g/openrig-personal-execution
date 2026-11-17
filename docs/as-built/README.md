@@ -16,7 +16,7 @@ last-updated: 2026-10-08
 
 # OpenRig as-built docs
 
-> **文档地图：** 本区**不**随包发布；用户参考见 [../reference/README.md](../reference/README.md)；仓内入口见 [DOCS-MAP.md](../../DOCS-MAP.md)；跨仓总图见 [../../../../deepseek-知识库/workflow-group/docs/openrig/README.md](../../../../deepseek-知识库/workflow-group/docs/openrig/README.md)。
+> **文档地图：** 本区**不**随包发布；用户参考见 [../reference/README.md](../reference/README.md)；仓内入口见 [DOCS-MAP.md](../../DOCS-MAP.md)；跨仓总图见 `deepseek-知识库/workflow-group/docs/openrig/README.md`（外部控制面文档，不随本仓发布）。
 
 These pages describe the code and point to its owning files. This index was checked against
 main commit `e8f0ab340db773392ec8be75b072d1c0f3068a50`. A linked module's

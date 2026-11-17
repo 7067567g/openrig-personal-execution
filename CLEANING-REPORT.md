@@ -1,222 +1,273 @@
-# CLEANING-REPORT — openrig-personal-local
+# CLEANING-REPORT — openrig-personal-execution
 
-Package: `openrig-personal-local`
-Step: `stage_packages` (workflow run `openrig-personal-publish-20261116`)
-Date: 2026-11-16
-Executed by: `exec-tdo-oc@openrig-personal-publish-20261116`
-Source: personal OpenRig source tree, commit `e932ae94e4c07b619c39902f29db949464ebb295`
-plus 29 uncommitted working-tree changes (as required by TASK §2).
+Package: `openrig-personal-execution`
+Step: `build_public_execution_package` (workflow run `openrig-s10-solution-20261118`)
+Date: 2026-11-18
+Executed by: `public-exec-builder` (task-15)
+Source: personal OpenRig source tree, clean tracked HEAD `8a7b8e00e48f4a7aa0a47e03336705c45b5aef23`
+(`chore(openrig): snapshot S10 remediation and current source worktree`) plus the
+current product worktree content. The only untracked source entries at build time were the
+excluded `var/openrig-remediation-evidence/` and `var/openrig-review-s10-20261118/` trees;
+there was no tracked source diff.
 
 ## 1. Include / exclude
 
 | Item | Value |
 | --- | --- |
-| Staging root | `openrig-personal-local/` |
-| Source files considered | 11,671 regular files (any-level `node_modules/`, `var/`, `.git/` and `var.7z` excluded) |
-| Files staged | 11,658 (see `PACKAGE-MANIFEST.json`) |
-| Bytes staged | 87,440,780 (83.39 MiB) |
-| `packages/*/dist` files | 7,218 |
-| `docs/` files | 165 |
-| Any-level `node_modules/` in staging | 0 |
-| `var/`, `var.7z`, `.git/` in staging | 0 |
+| Source rsync entries | 12,735 (regular 11,784, links 5, dirs 946) |
+| Source bytes (dry-run total) | 91,350,244 |
+| Final package files (manifest count) | 11802 |
+| Final package bytes (manifest count) | see `PACKAGE-MANIFEST.json` |
+| `packages/*/dist` files | 4034 |
+| `packages/cli/dist` files | 751 |
+| `docs/` files | 166 |
+| Any-level `node_modules/` in final tree | 0 |
+| `var/`, `var.7z`, `.git/` in final tree | 0 |
+
+The final tree was produced by an `rsync -a --delete` from the current product tree
+with the exclusion set below, then restoring the package-only files from the prior
+public clone. Package-only files preserved unchanged:
+
+```text
+README-PERSONAL.md  README-UPSTREAM.md  README.md  RUNTIME.md
+RELEASE-NOTES.md  STACK.json  .gitignore  AGENTS.md  runtime/
+```
 
 Excluded by pattern:
 
 ```text
-.git/                 any-level node_modules/     var/            var.7z
-.agents/  .claude/    .evidence/  .codegraph      rig.yaml        UPSTREAM-BASE
-*.sqlite*  *.db       .env*       *.pem  *.key    *.p12  *.crt
-*.log  *.tmp  *.tgz   .DS_Store   __pycache__/    demo/proof/
+.git/
+node_modules/
+var/
+var.7z
+.venv/
+.pytest_cache/
+.r7-work/
+.omo/
+.locks/
+.agents/
+.claude/
+.evidence/
+.codegraph
+/rig.yaml
+UPSTREAM-BASE
+*.sqlite*
+*.db
+.env*
+*.pem
+*.key
+*.p12
+*.crt
+*.log
+*.tmp
+*.tgz
+.DS_Store
+__pycache__/
+*.pyc
+demo/proof/
+TEST-REFACTOR.md
+/README-PERSONAL.md
+/README-UPSTREAM.md
+/README.md
+/RUNTIME.md
+/RELEASE-NOTES.md
+/STACK.json
+/.gitignore
+/runtime/
+/AGENTS.md
+/CLEANING-REPORT.md
+/CLEANING-REPORT-20261116.md
+/PACKAGE-MANIFEST.json
+/SHA256SUMS
 ```
 
-Rationale:
+Package-only paths were also excluded from rsync so the source tree could not
+overwrite them: `README-PERSONAL.md`, `README-UPSTREAM.md`, `README.md`, `RUNTIME.md`,
+`RELEASE-NOTES.md`, `STACK.json`, `.gitignore`, `runtime/`, `AGENTS.md`,
+`CLEANING-REPORT.md`, `CLEANING-REPORT-20261116.md`, `PACKAGE-MANIFEST.json`, and
+`SHA256SUMS`.
 
-- `rig.yaml` is an untracked machine-local rig config with an absolute cwd.
-- `UPSTREAM-BASE` is a local upstream-baseline note (mode 600), not deliverable content.
-- `var/` holds the run archive (published separately as the evidence asset).
-- `demo/proof/` holds local demo artifacts.
-- `.gitignore` was **replaced** with a packaging version, because the source
-  `.gitignore` ignores `dist/` and `docs/*`, which must be shipped here.
+The prior package report is preserved as `CLEANING-REPORT-20261116.md`; the
+generated report is this file.
 
 ## 2. Hard gate — secret scan
 
-### 2.0 Scan scope (including packaging documents)
-
-Every scan below covers the **whole package tree**, which explicitly includes the
-documents added at package time:
-
-`README-PERSONAL.md`, `RUNTIME.md`, `RELEASE-NOTES.md`, `runtime/install.sh`,
-`runtime/rig-shim.sh`, `runtime/OPENRIG_ENV.example`, `CLEANING-REPORT.md`,
-`PACKAGE-MANIFEST.json`, `SHA256SUMS`, `.gitignore`.
-
-`RELEASE-NOTES.md` (the `--notes-file` for the `v2026.11.16` GitHub release) was
-also checked by hand: it contains the product name, the tag, the release date,
-the contents list, a quick-start pointer to `RUNTIME.md`, provenance without any
-local absolute path, and the security statement referring back to this report. It
-is counted in `PACKAGE-MANIFEST.json` and listed in `SHA256SUMS`.
-
-Command (run from the staging root over all three packages):
+Command (whole final tree; excludes the clone's `.git` and binary image/sheet files):
 
 ```bash
 PAT='(ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{22,}|gh[ousr]_[A-Za-z0-9]{36}|sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{35}|-----BEGIN [A-Z ]*PRIVATE KEY-----)'
-rg -n --hidden --no-ignore -g '!.git/**' -g '!*.zst' -g '!*.png' -g '!*.jpg' -g '!*.gif' -g '!*.xlsx' -e "$PAT" \
-  openrig-personal-local workflow-group-personal-use evidence
+rg -n --hidden --no-ignore -g '!.git/**' -g '!*.zst' -g '!*.png' -g '!*.jpg' -g '!*.gif' -g '!*.xlsx' -e "$PAT" .
 ```
 
-Result: **89 matches in 37 files — every one reviewed individually and classified
-as a false positive** (test fixture, generated asset, or checksum file). No real
-credential exists in the package. Details in §3.
+Result on the final tree: **81 matches in 37 files — all false positives.**
+No live credential is present. The matches are provider-shaped test fixtures, generated
+minified/UI assets, a Base64 WebM fixture, and font filenames in `SHA256SUMS`. File-level
+inventory (matches, not values):
 
-Second-pass human review command (word-level, not automatic FAIL):
+| File | Matches |
+|---|---|
+| ./packages/cli/test/restore-packet.test.ts | 9 |
+| ./SHA256SUMS | 6 |
+| ./packages/daemon/test/slack-request-shape.test.ts | 6 |
+| ./packages/cli/test/slack-channel-map-cli.test.ts | 5 |
+| ./packages/daemon/test/transcript-routes.test.ts | 4 |
+| ./packages/daemon/test/agent-starter-resolver.test.ts | 3 |
+| ./packages/daemon/test/delivery-rules-engine.test.ts | 3 |
+| ./packages/daemon/test/owner-notification-routing.test.ts | 3 |
+| ./packages/daemon/test/slack-inbound-files.test.ts | 3 |
+| ./packages/daemon/test/slack-message.test.ts | 3 |
+| ./packages/cli/ui/dist/assets/index-CjGBhfVP.js | 2 |
+| ./packages/daemon/test/provider-codex-auth-reader.test.ts | 2 |
+| ./packages/daemon/test/slack-channel-map-wire.test.ts | 2 |
+| ./packages/daemon/test/slack-file-download.test.ts | 2 |
+| ./packages/daemon/test/slack-images.test.ts | 2 |
+| ./packages/daemon/test/slack-reply-to-thread.test.ts | 2 |
+| ./packages/daemon/test/slack-structured-questions.test.ts | 2 |
+| ./packages/daemon/test/slack-thread-routing.test.ts | 2 |
+| ./packages/ui/dist/assets/index-CjGBhfVP.js | 2 |
+| ./packages/cli/test/slack-cutover-cli.test.ts | 1 |
+| ./packages/cli/ui/dist/assets/index-DNU3XZr_.css | 1 |
+| ./packages/daemon/test/complete-human-notifications.test.ts | 1 |
+| ./packages/daemon/test/openrig-skills-router-coverage.test.ts | 1 |
+| ./packages/daemon/test/slack-attribution.test.ts | 1 |
+| ./packages/daemon/test/slack-durability.test.ts | 1 |
+| ./packages/daemon/test/slack-echo-registration.test.ts | 1 |
+| ./packages/daemon/test/slack-long-human-ask.test.ts | 1 |
+| ./packages/daemon/test/slack-mention-injection.test.ts | 1 |
+| ./packages/daemon/test/slack-restart-rate-limit.test.ts | 1 |
+| ./packages/daemon/test/slack-stale-notification.test.ts | 1 |
+| ./packages/daemon/test/slack-status-backlog.test.ts | 1 |
+| ./packages/daemon/test/slack-subsystem-cutover.test.ts | 1 |
+| ./packages/daemon/test/slack-upload-title.test.ts | 1 |
+| ./packages/ui/dist/assets/index-DNU3XZr_.css | 1 |
+| ./packages/ui/twin/corrective/media-webm.ts | 1 |
+| ./scripts/openrig-archive.test.mjs | 1 |
+| ./scripts/portability-report.test.mjs | 1 |
+
+Second-pass word-level scan (not an automatic failure; every hit reviewed):
 
 ```bash
 rg -n -i --hidden --no-ignore -g '!.git/**' \
-  -e 'bearer [A-Za-z0-9._-]{16,}' -e '(api[_-]?key|secret|token|password)[[:space:]]*[:=][[:space:]]*[^[:space:]"'"'"']{8,}' \
-  openrig-personal-local workflow-group-personal-use evidence
+  -e 'bearer [A-Za-z0-9._-]{16,}' \
+  -e '(api[_-]?key|secret|token|password)[[:space:]]*[:=][[:space:]]*[^[:space:]"'"'"']{8,}' .
 ```
 
-Every `token`/`password`/`bearer` word hit in this package is a variable name, a
-test fixture value, or documentation. No value is a live credential.
+Result: **1070 candidate lines in 430 files.** They are variable
+names, test fixtures, documentation, and generated assets; no value is a live
+credential. The line-level values are intentionally not copied into this report.
 
-> **Note on quoted matches:** matched literals in §3 are truncated with `…`
-> (and `AKIA…` / `-----BEGIN OPENSSH … KEY-----` are abbreviated) so that this
-> report does not itself trip the secret scanner. The `file:line` references are
-> exact; no value here is a credential.
-
-## 3. Allowlist — every high-confidence match, individually justified
-
-### 3.1 Test fixtures (fake values, kept as tests)
-
-| File | Lines | Matched text | Why it is not a credential |
-| --- | --- | --- | --- |
-| `packages/cli/test/restore-packet.test.ts` | 308, 310, 322, 324, 523, 526, 620, 1685, 1704 | `sk-aBc…wXyZ`, `sk-AbC…StUv`, `github…6789`, `sk-Fak…OpQr` | Redaction test vectors; the assertions verify these strings are *removed* |
-| `packages/daemon/test/transcript-routes.test.ts` | 353, 355, 366, 368 | `sk-Fak…OpQr`, `github…QrSt` | Transcript redaction fixture |
-| `packages/daemon/test/agent-starter-resolver.test.ts` | 185, 200, 201 | `sk-fak…fake` | Rejection-message fixture; asserts the value is *not* echoed |
-| `packages/daemon/test/provider-codex-auth-reader.test.ts` | 33, 48 | `sk-SEC…face` | Literal name says it must never surface; assertion enforces it |
-| `packages/daemon/test/slack-request-shape.test.ts` | 58, 72, 79, 82, 96, 105 | `xoxb-E…fake` | Slack API shape tests, no network |
-| `packages/daemon/test/slack-channel-map-cli.test.ts` | 135, 148, 159, 194, 204 | `xoxb-l…only` | CLI fixture; assertion checks it is not printed |
-| `packages/cli/test/slack-cutover-cli.test.ts` | 153 | `xoxb-l…only` | Same fixture |
-| `packages/daemon/test/slack-images.test.ts` | 63, 134 | `xoxb-E…fake` | Image-block builder fixture |
-| `packages/daemon/test/slack-mention-injection.test.ts` | 48 | `xoxb-E…fake` | Injection test fixture |
-| `packages/daemon/test/slack-message.test.ts` | 20, 65, 154 | `xoxb-E…Fake`, `xoxb-E…leak` | Leak-detection fixture; text explicitly says `doNotUseFake` |
-| `packages/daemon/test/slack-inbound-files.test.ts` | 65, 166, 206 | `xoxb-t…oken` | Auth-header fixture; asserts the token never reaches a row |
-| `packages/daemon/test/slack-structure*`, `slack-thread-routing`, `slack-durability`, `slack-attribution`, `slack-upload-title`, `slack-subsystem-cutover`, `slack-status-backlog`, `slack-stale-notification`, `slack-restart-rate-limit`, `slack-echo-registration`, `slack-long-human-ask`, `slack-reply-to-thread`, `slack-channel-map-wire`, `complete-human-notifications`, `delivery-rules-engine`, `owner-notification-routing`, `openrig-skills-router-coverage` | various | `xoxb-E…fake`, `xoxb-L…tion`, `xoxb-L…tion` | All write a temporary `fake.env` inside a test home; none is read from the environment or a real provider |
-| `scripts/portability-report.test.mjs` | 30 | `-----BEGIN OPENSSH … KEY-----` | The literal header string is the *input* to a category classifier test; no key body follows |
-| `packages/daemon/test/portability-report.test.mjs` equivalent (`AKIAAA…AAAA`) | — | `AKIA…` | Fabricated AWS-shaped string used by the portability classifier test |
-
-### 3.2 Generated / binary assets (pattern coincidence)
-
-| File | Matched text | Why it is not a credential |
-| --- | --- | --- |
-| `packages/ui/twin/corrective/media-webm.ts` | `AKIAAA…AAAA` (inside a base64 `data:video/webm` blob) | Base64 coincidence; the file is a WebM encoder fixture |
-| `packages/cli/ui/dist/assets/index-CjGBhfVP.js` | `sk-str…ault`, `sk-ima…olor`, … | Minified UI bundle; these are CSS custom-property names, not API keys |
-| `packages/cli/ui/dist/assets/index-DNU3XZr_.css` | `sk-…` font descriptors | Tailwind/CSS token names |
-| `SHA256SUMS` | `sk-vie…mal-…`, `sk-latin-wght-normal-…` | The hash file lists **font filenames** (`space-grotesk-*`) whose substring `sk-latin…` matches the `sk-` rule |
-
-### 3.3 Evidence bundle cross-hit
-
-`evidence/workflow-group-runs/openrig-full-verify-20261019/reports/evidence/{build,test-repo,test-repo-retest}.txt`
-contain the same `space-grotesk-*.woff2` font filenames from an old build log.
-Same false positive as §3.2.
-
-**Conclusion: no real secret. No file was exempted wholesale — each match above
-is justified line by line.**
-
-## 4. Hard gate — raw session / SQLite / home-snapshot scan
+## 3. Hard gate — raw session / SQLite / home snapshot
 
 ```bash
-find openrig-personal-local workflow-group-personal-use evidence \
+find . -path './.git' -prune -o \
   \( -name 'events.jsonl' -o -path '*/transcripts/*' -o -path '*/sessions/*' \
      -o -name '*.sqlite*' -o -name '*.db' -o -name '.credentials' -o -name 'auth.json' \
      -o -path '*/.dsh/*' -o -path '*/secrets/*' -o -name 'id_rsa*' \) -print
 ```
 
-Result: **no output (0 hits).**
+Result: **0 hits (no output).** No raw transcript, session directory,
+SQLite database, credential file, or home snapshot is shipped.
 
-## 5. Local absolute paths
+## 4. Local absolute paths
 
-Hard gate (must be zero) across `README-PERSONAL.md`, `RUNTIME.md`, `runtime/**`,
-`PACKAGE-MANIFEST.json`:
-
-```bash
-rg -n '/home/[A-Za-z0-9._-]+' openrig-personal-local/{README-PERSONAL.md,RUNTIME.md,runtime}
-```
-
-Result: **no output.**
-
-Rewrite performed:
-
-| File | Original | Now |
-| --- | --- | --- |
-| `AGENTS.md` (§ guidance/team.md) | private run brief with `/home/<user>/…` project and run paths | generic project guidance, no absolute paths |
-| `AGENTS.md` (trailing map) | relative link into a sibling private repository | in-repo `DOCS-MAP.md` link |
-| `runtime/rig-shim.sh`, `runtime/install.sh` | — | written path-free (resolve their own directory) |
-
-### 5.1 Executable scripts — every hit enumerated and classified
-
-`00-plan.md` §4.4 forbids machine paths in executable scripts, so the package was
-searched script-by-script rather than by directory:
+Hard gate over package docs, runtime, and sanitized agent guidance:
 
 ```bash
-rg -n '/home/[A-Za-z0-9._-]+' openrig-personal-local/{runtime,scripts}
+rg -n '/home/[A-Za-z0-9._-]+' README-PERSONAL.md RUNTIME.md runtime AGENTS.md
 ```
 
-Result: **8 hits in 3 files, all justified below. Zero are the author's home.**
+Result: **0 hits (no output).**
 
-| File:lines | Hit | Classification |
-| --- | --- | --- |
-| `scripts/bootstrap-product-factory-vps.sh:44-48` | `/home/openrig/.ssh/…` | **Target service account.** The script provisions a *new* VPS user named `openrig`; that user's home is `/home/openrig` by definition. It is the destination of the deployment, not the author's machine path. Replacing it with a variable would make a working provisioning script less readable without removing any information about this machine. |
-| `scripts/portability-report.test.mjs:31,41` | `/home/bob/project`, `/home/user/repo` | Test fixtures for the home-path classifier (`/home/bob`, `/home/user` are RFC-style placeholders). |
-| `scripts/internal-leak-scanner.test.mjs:102` | `/home/example/project` | Test fixture for the leak scanner. |
-
-Allowed and left in place (documented, not executable configuration):
-
-| Count | Where | Nature |
-| --- | --- | --- |
-| 56 files | `packages/**` test fixtures and docs | `/home/test`, `/home/u`, `/home/user`, … synthetic fixture values |
-| 1 line | `AGENTS.md` | none remaining |
-
-No `README`, `RUNTIME`, `runtime/*`, `scripts/*` executable path or manifest
-contains the author's machine path.
-
-## 6. Large files
+Executable/scripts inventory (allowed only when the path is a documented target/fixture,
+not the author's home):
 
 ```bash
-find openrig-personal-local -type f -size +20M -printf '%s %p\n'
+rg -n '/home/[A-Za-z0-9._-]+' runtime scripts
 ```
 
-Result: **no output.** Largest files are the UI bundles
-(`packages/cli/ui/dist/assets/index-*.js`, ≈1.97 MB) and are listed in
-`PACKAGE-MANIFEST.json` under `largest`. Well below the GitHub 100 MB file limit.
+Result: **8 hits in 3 files**, all documented
+below. None is the author's home path or a launch command for this machine.
 
-## 7. Executable bits
+| File:line | Hit (truncated) |
+|---|---|
+| scripts/portability-report.test.mjs | 31:  assert.deepEqual(categories("see /home/bob/project"), ["Home path"]); |
+| scripts/portability-report.test.mjs | 41:    "cd /home/user/repo", |
+| scripts/bootstrap-product-factory-vps.sh | 44:install -d -m 0700 -o openrig -g openrig /home/openrig/.ssh |
+| scripts/bootstrap-product-factory-vps.sh | 45:grep -qF "$AUTHORIZED_KEY" /home/openrig/.ssh/authorized_keys 2>/dev/null \ |
+| scripts/bootstrap-product-factory-vps.sh | 46:  || echo "$AUTHORIZED_KEY" >> /home/openrig/.ssh/authorized_keys |
+| scripts/bootstrap-product-factory-vps.sh | 47:chown openrig:openrig /home/openrig/.ssh/authorized_keys |
+| scripts/bootstrap-product-factory-vps.sh | 48:chmod 0600 /home/openrig/.ssh/authorized_keys |
+| scripts/internal-leak-scanner.test.mjs | 102:    line.replace("<launch cwd>", "/home/example/project"), |
+
+Source test fixtures elsewhere retain synthetic `/home/test`, `/home/user`, `/home/example`
+strings by design; rewriting them would weaken the tests. No README, `RUNTIME.md`,
+`runtime/*`, or manifest contains an author home path.
+
+## 5. Large files and executable bits
 
 ```bash
-find openrig-personal-local/runtime -name '*.sh' ! -perm -u+x -print
+find . -path './.git' -prune -o -type f -size +20M -printf '%s %p\n'
 ```
 
-Result: **no output.** `runtime/install.sh` and `runtime/rig-shim.sh` are `0755`.
-Existing source scripts keep their original modes.
+Result: **no output.** No file reaches the 20 MB manifest warning threshold.
 
-## 8. Known gaps / unverified
+```bash
+find runtime -name '*.sh' ! -perm -u+x -print
+```
 
-1. The tree is a **snapshot of a dirty working tree**, not a tagged release. The
-   provenance is the commit hash plus the shipped files themselves.
-2. `packages/daemon/context-packs/` is generated at package time upstream; this
-   snapshot ships whatever the working tree contained, so it may differ from a
-   fresh `npm run generate-context-packs` run. `npm run generate-context-packs:check`
-   is part of `npm test` for verification.
-3. `dist/` bundles are shipped prebuilt; they were not rebuilt during staging.
-   `bash runtime/install.sh` rebuilds them from source.
-4. Historical local paths inside test fixtures are left untouched by design: they
-   are fixtures, and rewriting them would weaken the tests.
+Result: **no output.** `runtime/install.sh` and `runtime/rig-shim.sh` are modes 0775.
 
-## 9. Provenance
+## 6. PACKAGE-MANIFEST / SHA256SUMS
+
+`PACKAGE-MANIFEST.json` records:
 
 | Field | Value |
 | --- | --- |
-| Source tree | personal OpenRig source, dirty working tree |
-| Source HEAD | `e932ae94e4c07b619c39902f29db949464ebb295` |
+| `package` | `openrig-personal-execution` |
+| `version` | `0.1.4` |
+| `fileCount` | 11802 |
+| `bytes` | see `PACKAGE-MANIFEST.json` |
+| `sha256Manifest` | `SHA256SUMS` |
+| `sha256ManifestLines` | 11802 |
+| `largest` | see PACKAGE-MANIFEST.json |
+
+`SHA256SUMS` contains one `sha256  relative/path` line for every package file except
+`PACKAGE-MANIFEST.json` and `SHA256SUMS`; the line count equals `fileCount`, and the
+manifest byte total equals the sum of the listed file sizes.
+
+## 7. Known gaps / unverified
+
+1. This is a source snapshot of the personal product worktree at commit
+   `8a7b8e00e48f4a7aa0a47e03336705c45b5aef23`, not a tagged upstream release.
+   The product worktree had no tracked diff; only the excluded `var/` evidence trees
+   were untracked.
+2. `dist/` bundles are shipped prebuilt from the source tree; they were not rebuilt
+   during packaging. `runtime/install.sh` rebuilds them from source.
+3. Package-only docs preserved from the prior public clone (`README-PERSONAL.md`,
+   `RUNTIME.md`, `RELEASE-NOTES.md`, `AGENTS.md`) retain their prior package wording
+   and date where applicable; they were intentionally not rewritten by this task.
+4. Synthetic home paths and credential-shaped test fixtures remain in source tests by
+   design; they are not executable configuration and are classified above.
+5. No npm install or dependency-container build was run during packaging.
+
+## 8. Provenance
+
+| Field | Value |
+| --- | --- |
+| Source track | personal OpenRig product worktree |
+| Source HEAD | `8a7b8e00e48f4a7aa0a47e03336705c45b5aef23` |
+| Source HEAD subject | `chore(openrig): snapshot S10 remediation and current source worktree` |
+| Source tracked diff | empty |
+| Source untracked | excluded `var/openrig-remediation-evidence/`, `var/openrig-review-s10-20261118/` |
 | Version | `openrig-local 0.1.4` |
-| Built/staged | 2026-11-16 |
-| Staged by | `exec-tdo-oc@openrig-personal-publish-20261116` |
+| Built | 2026-11-18 (local time) |
+| Prior report | `CLEANING-REPORT-20261116.md` |
+
+## 9. Post-QA amendment (2026-11-18)
+
+Independent QA found that `scripts/openrig-test-entry.test.mjs` failed in a
+dependency-free checkout: the `security` lane refuses before the workflow-group
+check when `node_modules/.bin/vitest` is absent. The test now skips that one
+negative case with an explicit reason; all other cases still run. The source
+test was fixed and the public snapshot was amended. Run `npm ci` (or
+`runtime/install.sh`) to execute the full gate with vitest present.

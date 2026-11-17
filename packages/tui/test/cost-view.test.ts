@@ -80,6 +80,30 @@ describe("System → Cost: the presenter over the daemon's cost route", () => {
     expect(out).toContain("quiet-claude@r  cost: not reported (Claude's statusline has reported no cost for this session)");
   });
 
+  it("uses the served source/runtime for OpenCode and DSH, never a blanket Claude label", () => {
+    const opencode = {
+      seatSession: "dev-opencode@r", runtime: "opencode", status: "reported",
+      kind: "client-side estimate", source: "OpenCode step_finish cost",
+      costUsd: 0.42, resets: 0, stale: false, ageSeconds: 3,
+      window: { nativeSessionId: "ses_oc", since: at(50), asOf: at(58) },
+      tokens: { input: 1200, output: 300 },
+    };
+    expect(costHeadLine(opencode as never)).toBe(costLine(opencode as never));
+    expect(costHeadLine(opencode as never)).toContain("client-side estimate (OpenCode step_finish cost)");
+    expect(costHeadLine(opencode as never)).not.toContain("Claude statusline");
+
+    const dsh = {
+      seatSession: "dev-dsh@r", runtime: "dsh", status: "no-cost-method",
+      note: "no cost reported by the inspected method (DSH runner reports tokens but no client cost estimate)",
+      window: { nativeSessionId: "session-1", asOf: at(58) },
+      tokens: { input: 700, output: 200 },
+    };
+    expect(costHeadLine(dsh as never)).toBe(costLine(dsh as never));
+    expect(costHeadLine(dsh as never)).toContain("DSH runner reports tokens but no client cost estimate");
+    expect(costHeadLine(dsh as never)).not.toContain("Claude statusline");
+    expect(costHeadLine(dsh as never)).not.toContain("$");
+  });
+
   it("Codex: tokens and the method's no-cost note, and no dollars", async () => {
     const lines = text(await read()).split("\n");
     const at0 = lines.findIndex((l) => l.includes("dev-codex@r"));

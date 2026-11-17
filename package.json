@@ -26,7 +26,12 @@
     "generate-context-packs": "node scripts/generate-context-packs.mjs",
     "generate-context-packs:check": "node scripts/generate-context-packs.mjs --check",
     "gate:substance": "node scripts/check-substance-gate.mjs",
-    "gate": "node scripts/gate-lane.mjs"
+    "gate": "node scripts/gate-lane.mjs",
+    "test:openrig:fast": "bash scripts/openrig-test-entry.sh fast",
+    "test:openrig:security": "bash scripts/openrig-test-entry.sh security",
+    "test:openrig:workflow": "bash scripts/openrig-test-entry.sh workflow",
+    "test:openrig:full": "bash scripts/openrig-test-entry.sh full",
+    "test:product:full": "npm test && npm run test:ui"
   },
   "engines": {
     "node": "^22 || ^24"

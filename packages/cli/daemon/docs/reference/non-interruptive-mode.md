@@ -16,7 +16,12 @@ kernel's operational default always get the Codex notice overrides below, withou
 - Pi's existing launch flags are unchanged.
 
 OpenRig saves the choice on the rig. Later launches, restores, forks and handovers keep it, including
-when the option is omitted. To turn it off, first stop the rig with `rig down <rig-name>`, then run
+when the option is omitted. Inspect the current per-seat launch state with
+`rig ps --nodes --json` (or `--fields permissionPolicy,launchPosture,nonInterruptive`):
+`permissionPolicy` is the effective member-or-rig ref, `launchPosture` is
+`floor`/`full_bypass`/`auto`/`unknown`, and `nonInterruptive` is
+`true`/`false`/`unknown` (`null` means the daemon did not report it).
+To turn it off, first stop the rig with `rig down <rig-name>`, then run
 `rig up <rig-name> --existing --no-non-interruptive`. The choice is cleared for this and subsequent
 launches. If the rig is still running, the command is refused before the choice changes. `--plan`
 changes nothing. Disabling the mode does not erase acceptance that a person previously saved in the harness.

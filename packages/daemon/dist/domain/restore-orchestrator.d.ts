@@ -12,7 +12,8 @@ import type { CodexResumeAdapter } from "../adapters/codex-resume.js";
 import type { PiResumeAdapter } from "../adapters/pi-resume.js";
 import type { OmpResumeAdapter } from "../adapters/omp-resume.js";
 import type { TranscriptStore } from "./transcript-store.js";
-import type { RestoreOutcome, RestoreRigResult, RestoreNodeResult, RestoreSnapshotSelection } from "./types.js";
+import type { RestoreOutcome, RestoreRigResult, RestoreNodeResult, SnapshotData, RestoreSnapshotSelection, RestoreValidationBlocker } from "./types.js";
+import { resolveSnapshotRestoreTopology } from "./restore-topology.js";
 export type ReconcileNodeResult = {
     ok: true;
     attemptId: number;
@@ -31,6 +32,33 @@ export type ReconcileNodeResult = {
 };
 export { resolveActiveSnapshotSession } from "./active-occupant.js";
 export type { ActiveSnapshotSessionResolution } from "./active-occupant.js";
+export type RestorePreflightClassification = {
+    live: string[];
+    stale: string[];
+    unknown: string[];
+};
+export type RestorePreflightOutcome = {
+    ok: true;
+    classification: RestorePreflightClassification;
+    validation: {
+        blockers: RestoreValidationBlocker[];
+        warnings: string[];
+    };
+    topology: ReturnType<typeof resolveSnapshotRestoreTopology>;
+} | {
+    ok: false;
+    code: "rig_not_stopped";
+    message: string;
+} | {
+    ok: false;
+    code: "pre_restore_validation_failed";
+    message: string;
+    validation: {
+        blockers: RestoreValidationBlocker[];
+        warnings: string[];
+    };
+    topology: ReturnType<typeof resolveSnapshotRestoreTopology>;
+};
 export declare function rollupRestoreRigResult(nodes: RestoreNodeResult[]): RestoreRigResult;
 /** OPR.0.4.3.20 FR-7 — restore/launch statuses that mean NO session is running and
  *  the operator must act. The launch API + CLI must NOT report these as a successful
@@ -120,6 +148,18 @@ export declare class RestoreOrchestrator {
     private listProcesses;
     private appliedLaunchStore;
     constructor(deps: RestoreOrchestratorDeps);
+    /**
+     * Read-only restore preflight: classify DB-running sessions against tmux and
+     * run the same structural `validatePreRestore` used by restore(), without
+     * capturing a snapshot or mutating a session. Auto-rehydrate routes call this
+     * on the prepared payload BEFORE persisting the capture.
+     */
+    preflightSnapshotData(snapshotData: SnapshotData, opts?: {
+        fsOps?: {
+            exists(path: string): boolean;
+        };
+        freshLogicalIds?: string[];
+    }): Promise<RestorePreflightOutcome>;
     restore(snapshotId: string, opts?: {
         adapters?: Record<string, import("./runtime-adapter.js").RuntimeAdapter>;
         fsOps?: {

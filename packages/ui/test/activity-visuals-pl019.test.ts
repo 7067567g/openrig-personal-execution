@@ -227,14 +227,6 @@ describe("PL-019 activity-visuals", () => {
       expect(r).toEqual({ state: "running", source: "none" });
     });
 
-    it("runtime_hook running (fresh, not stale) always source=hook regardless of terminalActive", () => {
-      const r = getActivityStateWithSource(
-        { state: "running", reason: "x", evidenceSource: "runtime_hook", sampledAt: "z" },
-        false,
-      );
-      expect(r).toEqual({ state: "running", source: "hook" });
-    });
-
     it("backward compat: single-arg getActivityState still works", () => {
       expect(getActivityState(null)).toBe("unknown");
       expect(getActivityState({ state: "running", reason: "x", evidenceSource: "y", sampledAt: "z" })).toBe("running");

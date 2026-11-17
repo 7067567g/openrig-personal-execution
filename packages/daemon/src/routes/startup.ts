@@ -14,7 +14,7 @@ import type { RuntimeAdapter } from "../domain/runtime-adapter.js";
 import type { PodRigInstantiator } from "../domain/rigspec-instantiator.js";
 import type { ResumeMetadataRefresher } from "../domain/resume-metadata-refresher.js";
 import type { TmuxAdapter } from "../adapters/tmux.js";
-import type { Node, RigWithRelations } from "../domain/types.js";
+import type { Node, RigWithRelations, Snapshot } from "../domain/types.js";
 import { defaultProbeRuntimes } from "../domain/kernel-boot.js";
 import { SettingsStore } from "../domain/user-settings/settings-store.js";
 import { buildRestorePlanPreview, collectPreviewSessionRows } from "../domain/restore-plan-preview.js";
@@ -196,16 +196,52 @@ startupRoutes.post("/:rigId/:logicalId", async (c) => {
       return c.json({ ...result, ok, observed: after, ...(!ok ? { message: after.detail, freshAllowed: false } : {}) }, ok ? 200 : 409);
     }
     const selectedRig = { ...rig, nodes: [node] };
+    const capture = dep<SnapshotCapture>(c, "snapshotCapture");
+    const restoreOrchestrator = dep<RestoreOrchestrator>(c, "restoreOrchestrator");
     let snapshot = currentSnapshot(c, selectedRig);
+    let preparedData: ReturnType<SnapshotCapture["prepareSnapshotData"]> | null = null;
     if (!snapshot) {
       const eligibility = assessCurrentStateRehydrateEligibility(repo(c).db, selectedRig);
       if (!eligibility.ok) return c.json({ ok: false, code: "startup_source_unavailable", message: eligibility.blockers.join("; ") }, 409);
-      snapshot = dep<SnapshotCapture>(c, "snapshotCapture").captureSnapshot(rig.rig.id, "auto-rehydrate");
+      // Build the candidate payload read-only, run the same structural preflight
+      // as /api/up and /api/rigs/:id/up, and only then persist auto-rehydrate.
+      // A blocked preflight must not leave a new snapshot behind.
+      preparedData = capture.prepareSnapshotData(rig.rig.id, "auto-rehydrate");
+      const preflight = await restoreOrchestrator.preflightSnapshotData(preparedData, {
+        fsOps: { exists: existsSync },
+      });
+      if (!preflight.ok) {
+        if (preflight.code === "rig_not_stopped") {
+          return c.json({ ok: false, error: preflight.message, message: preflight.message, code: preflight.code }, 409);
+        }
+        return c.json({
+          ok: false,
+          status: "not_attempted",
+          error: preflight.message,
+          message: preflight.message,
+          code: preflight.code,
+          snapshotKind: "auto-rehydrate",
+          warnings: preflight.validation.warnings,
+          blockers: preflight.validation.blockers,
+          intendedRoster: preflight.topology.intendedRoster,
+          excludedNodes: preflight.topology.excludedNodes,
+          remediation: preflight.validation.blockers.map((blocker) => blocker.remediation),
+        }, 409);
+      }
+      snapshot = {
+        id: "auto-rehydrate-preview",
+        rigId: rig.rig.id,
+        kind: "auto-rehydrate",
+        status: "preview",
+        data: preparedData,
+        createdAt: new Date().toISOString(),
+      } as Snapshot;
     }
     const forecast = buildRestorePlanPreview(selectedRig, snapshot, collectPreviewSessionRows(repo(c).db, selectedRig, snapshot)).nodes[0]!;
     if (history.length > 0 && forecast.intendedAction !== "resume-original") return c.json({ ok: false, code: "resume_unavailable", freshAllowed: forecast.freshRequired,
       message: forecast.reason ?? "The prior conversation cannot be resumed under this seat's configured policy. A fresh conversation needs a separate decision." }, 409);
-    const result = await dep<RestoreOrchestrator>(c, "restoreOrchestrator").launchSingleNode(rig.rig.id, node.logicalId, {
+    if (preparedData) snapshot = capture.captureSnapshot(rig.rig.id, "auto-rehydrate", { preparedData });
+    const result = await restoreOrchestrator.launchSingleNode(rig.rig.id, node.logicalId, {
       snapshotId: snapshot.id, adapters: dep<Record<string, RuntimeAdapter>>(c, "runtimeAdapters"), fsOps: { exists: existsSync },
     });
     const outcome = result.launched?.[0];

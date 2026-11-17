@@ -11,12 +11,16 @@ The archive is intentionally self-describing:
   machines/<machine>/runs/<run-id>/home/      # redacted/filtered live OPENRIG_HOME snapshot
   machines/<machine>/sessions/<session-id>/   # related DSH session snapshot
 
-Strict mode (default) requires: run snapshot, at least one related DSH session,
-a successful transcript capture (or captured transcripts), OpenRig state/config,
-and a non-empty OPENRIG_HOME snapshot whose SQLite online backups all succeed.
-Session snapshot files are hashed into MANIFEST.files/SHA256SUMS (scope=session).
-Use --allow-incomplete only for historical runs whose live home no longer exists;
-the archive will still be written and RECORD.md will list the gaps.
+Strict mode (default) requires: run snapshot, a successful transcript capture (or
+captured transcripts), OpenRig state/config, and a non-empty OPENRIG_HOME snapshot
+whose SQLite online backups all succeed. Related DSH session snapshots are
+required only when the run declares a DSH runtime (or when the operator passes
+--session-id / --session-snapshot-policy required). A run with no DSH runtime is
+recorded as sessionSnapshots=not-applicable with runtime evidence; it is not a
+missing artifact. Session snapshot files are hashed into
+MANIFEST.files/SHA256SUMS (scope=session). Use --allow-incomplete only for
+historical runs whose live home no longer exists; the archive will still be
+written and RECORD.md will list the gaps.
 
 Path mode (no run snapshot):
   python3 scripts/openrig-archive.py --print-paths
@@ -66,11 +70,17 @@ HOME_SAFE_FILES = [
     "bundle-audit.jsonl",
 ]
 HOME_SAFE_DIRS = ["transcripts", "state", "topology", "compaction", "context"]
+RUNTIME_LINE_RE = re.compile(r"^\s*runtime\s*:\s*[\"\']?([A-Za-z0-9_.-]+)", re.M)
+# Generic KEY=value assignments need a minimum signal so transcript prose such as
+# `token=True` is not treated as a credential. This is a precision filter, not an
+# opt-out: long values are still reported and remain fail-closed in copy_home().
+SECRET_ASSIGNMENT_MIN_LENGTH = 12
+SECRET_ASSIGNMENT_NON_VALUES = {"true", "false", "null", "none", "undefined"}
 SECRET_PATTERNS = [
     ("openai-key", re.compile(r"sk-[A-Za-z0-9_-]{20,}")),
     ("openai-env", re.compile(r"OPENAI_API_KEY\s*=\s*\S+")),
     ("bearer", re.compile(r"Authorization:\s*Bearer\s+\S+", re.I)),
-    ("password", re.compile(r"(?:PASSWORD|SECRET|TOKEN)\s*=\s*\S+", re.I)),
+    ("password", re.compile(r"(?:PASSWORD|SECRET|TOKEN)\s*=\s*(?P<value>\S+)", re.I)),
 ]
 
 
@@ -170,6 +180,28 @@ def copy_session(session_id: str, source: Path, sessions_root: Path, run_id: str
     return dst
 
 
+def high_signal_assignment_match(kind: str, pattern: re.Pattern[str], line: str) -> bool:
+    """Return whether a pattern has a substantive generic assignment value.
+
+    API-key and bearer patterns are already high-signal and unchanged. The generic
+    PASSWORD/SECRET/TOKEN rule additionally rejects short prose/boolean values and
+    a small set of explicit non-values. It never suppresses a long assignment based
+    on file name, archive flags, or user-provided allowlists.
+    """
+    if kind != "password":
+        return pattern.search(line) is not None
+    for match in pattern.finditer(line):
+        value = match.group("value").strip().rstrip(",;:)]}").strip().strip("\"'`")
+        if len(value) < SECRET_ASSIGNMENT_MIN_LENGTH:
+            continue
+        if value.casefold() in SECRET_ASSIGNMENT_NON_VALUES:
+            continue
+        if not any(ch.isalnum() for ch in value):
+            continue
+        return True
+    return False
+
+
 def scan_secrets(root: Path) -> list[dict]:
     hits: list[dict] = []
     for path in sorted(p for p in root.rglob("*") if p.is_file()):
@@ -179,7 +211,7 @@ def scan_secrets(root: Path) -> list[dict]:
             with path.open("r", encoding="utf-8", errors="ignore") as fh:
                 for lineno, line in enumerate(fh, 1):
                     for kind, pattern in SECRET_PATTERNS:
-                        if pattern.search(line):
+                        if high_signal_assignment_match(kind, pattern, line):
                             hits.append({"file": str(path.relative_to(root)), "line": lineno, "kind": kind})
                             break
         except OSError:
@@ -284,6 +316,42 @@ def capture_manifests(run_archive: Path) -> list[dict]:
             "scanOk": bool((data.get("scan") or {}).get("ok")),
         })
     return manifests
+
+
+def detect_runtimes(run_dir: Path) -> list[str]:
+    """Collect declared runtimes from run-owned OpenRig config/state artifacts.
+
+    The archive gate must distinguish "DSH exists but its session is missing" from
+    "this run has no DSH runtime at all". We read only the run snapshot inputs
+    (rig/agent YAML and an optional state JSON), never the live daemon API.
+    """
+    values: set[str] = set()
+    openrig = run_dir / "openrig"
+    if openrig.is_dir():
+        for path in sorted(openrig.rglob("*.yaml")):
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            values.update(m.group(1).strip("\"\'") for m in RUNTIME_LINE_RE.finditer(text))
+    state_path = run_dir / "OPENRIG-STATE.json"
+    if state_path.is_file():
+        try:
+            data = json.loads(state_path.read_text(encoding="utf-8"))
+        except Exception:
+            data = None
+        def walk(value):
+            if isinstance(value, dict):
+                runtime = value.get("runtime")
+                if isinstance(runtime, str) and runtime.strip():
+                    values.add(runtime.strip())
+                for child in value.values():
+                    walk(child)
+            elif isinstance(value, list):
+                for child in value:
+                    walk(child)
+        walk(data)
+    return sorted(v for v in values if v)
 
 
 def has_raw_transcripts(run_archive: Path, home_archive: Path | None) -> bool:
@@ -442,6 +510,12 @@ def main() -> int:
     ap.add_argument("--openrig-home", help="live OPENRIG_HOME to snapshot before teardown")
     ap.add_argument("--session-id", action="append", default=[], help="related DSH session id; repeatable")
     ap.add_argument("--session-root", default=str(DEFAULT_SESSION_ROOT), help="DSH sessions root")
+    ap.add_argument(
+        "--session-snapshot-policy",
+        choices=["auto", "required", "not-applicable"],
+        default="auto",
+        help="auto: require session snapshots only when the run declares dsh (or --session-id is passed); required: always require; not-applicable: refuse if dsh is declared",
+    )
     ap.add_argument("--archive-root", help="project-local archive root (default: OPENRIG_ARCHIVE_ROOT or var/openrig-archive)")
     ap.add_argument("--machine", help="machine label (default: OPENRIG_MACHINE_ID or sanitized hostname)")
     ap.add_argument("--bridge-tool", help="path to openrig_bridge.py; auto-detected for workflow-group runs")
@@ -493,6 +567,35 @@ def main() -> int:
         if candidate.is_file():
             bridge_tool = candidate
 
+    runtimes = detect_runtimes(run_dir)
+    has_dsh = "dsh" in runtimes
+    if args.session_snapshot_policy == "required":
+        session_required = True
+        session_policy_reason = "explicit --session-snapshot-policy required"
+    elif args.session_snapshot_policy == "not-applicable":
+        if has_dsh:
+            print("--session-snapshot-policy not-applicable refused: run declares dsh runtime", file=sys.stderr)
+            return 2
+        session_required = False
+        session_policy_reason = "explicit not-applicable policy; run declares no dsh runtime"
+    elif args.session_id:
+        session_required = True
+        session_policy_reason = "explicit --session-id requested related DSH snapshots"
+    elif has_dsh:
+        session_required = True
+        session_policy_reason = "run declares dsh runtime"
+    else:
+        session_required = False
+        session_policy_reason = "run declares no dsh runtime; session snapshots are not applicable"
+    session_policy = {
+        "mode": args.session_snapshot_policy,
+        "applicability": "required" if session_required else "not-applicable",
+        "reason": session_policy_reason,
+        "declaredRuntimes": runtimes,
+        "hasDsh": has_dsh,
+        "explicitSessionIds": list(args.session_id),
+    }
+
     # A live home may still be changing; capture transcripts into run evidence first.
     capture_result = bridge_capture(run_dir, home, bridge_tool)
 
@@ -535,15 +638,19 @@ def main() -> int:
         (staging / "run" / name).is_file() for name in ["openrig/OPENRIG-BRIDGE.json", "openrig/rig.yaml", "openrig/workflow.yaml"]
     )
     home_ok = home_result.get("ok", False)
+    not_applicable = {"sessionSnapshots": True} if not session_required else {}
     required = {
         "runSnapshot": run_ok,
-        "sessionSnapshots": session_ok,
+        "sessionSnapshots": session_ok if session_required else False,
         "transcriptCapture": transcript_ok,
         "openrigState": state_ok,
         "homeSnapshot": home_ok,
     }
-    missing = [k for k, v in required.items() if not v]
-    archive_status = "COMPLETE" if all(required.values()) else "PARTIAL"
+    missing = [
+        k for k, v in required.items()
+        if not not_applicable.get(k) and v is not True
+    ]
+    archive_status = "COMPLETE" if not missing else "PARTIAL"
 
     record = [
         f"# OpenRig run archive — {run_id}",
@@ -558,7 +665,7 @@ def main() -> int:
         "## Mandatory retention checklist",
         "",
         f"- [{'x' if run_ok else ' '}] run snapshot",
-        f"- [{'x' if session_ok else ' '}] related DSH sessions ({len(args.session_id)} requested, {sum(1 for s in session_results if s.get('ok'))} copied)",
+        ("- [n/a] related DSH sessions — not applicable: " + session_policy_reason) if not session_required else f"- [{'x' if session_ok else ' '}] related DSH sessions ({len(args.session_id)} requested, {sum(1 for s in session_results if s.get('ok'))} copied)",
         f"- [{'x' if transcript_ok else ' '}] transcript capture / raw transcripts",
         f"- [{'x' if state_ok else ' '}] OpenRig state or bridge/config",
         f"- [{'x' if home_ok else ' '}] live OPENRIG_HOME snapshot",
@@ -593,7 +700,7 @@ def main() -> int:
         "## Restore",
         "",
         f"- Run control-plane files: copy `{run_archive}/run/` back to `{run_dir.parent}/` as `{run_id}`.",
-        "- Related DSH sessions: copy from `../../sessions/<session-id>/` into the target machine's `~/.dsh/sessions/<workspace-key>/`.",
+        ("- Related DSH sessions: not applicable for this run (`" + session_policy_reason + "`)." if not session_required else "- Related DSH sessions: copy from `../../sessions/<session-id>/` into the target machine's `~/.dsh/sessions/<workspace-key>/`."),
         "- Do not restore `openrig.sqlite` while a daemon is running; restore the DB before daemon start.",
         "",
     ]
@@ -612,6 +719,8 @@ def main() -> int:
             "bridgeTool": str(bridge_tool) if bridge_tool else None,
         },
         "required": required,
+        "notApplicable": not_applicable,
+        "sessionSnapshotPolicy": session_policy,
         "missing": missing,
         "sessions": session_results,
         "transcriptCapture": {
@@ -643,7 +752,11 @@ def main() -> int:
     write_index(archive_root)
     write_sessions_index(archive_root)
     print(f"archived {run_id} -> {run_archive}")
-    print(f"status={archive_status} missing={','.join(missing) or 'none'} sessions={manifest['counts']['sessions']}")
+    print(
+        f"status={archive_status} missing={','.join(missing) or 'none'} "
+        f"sessions={manifest['counts']['sessions']} "
+        f"sessionSnapshots={session_policy['applicability']}"
+    )
     if archive_status != "COMPLETE" and not args.allow_incomplete:
         print("strict archive gate failed; rerun with a complete home/capture/session set or --allow-incomplete for a historical gap", file=sys.stderr)
         return 3

@@ -206,6 +206,7 @@ export class ContextMonitor {
       WHERE (
           (n.runtime = 'claude-code' AND s.status = 'running')
           OR (n.runtime = 'stub' AND s.status = 'running')
+          OR (n.runtime IN ('opencode', 'dsh') AND s.status = 'running')
           OR (
             n.runtime = 'codex'
             AND (
@@ -224,6 +225,14 @@ export class ContextMonitor {
         if (session.runtime === "codex") {
             return this.store.readCodexAndNormalize({
                 threadId: session.resume_token,
+                sessionName: session.session_name,
+            });
+        }
+        // OpenCode/DSH seats report usage through their runner's `usage.json`
+        // sidecar; there is no Claude statusline sidecar to read for them.
+        if (session.runtime === "opencode" || session.runtime === "dsh") {
+            return this.store.readCliAgentAndNormalize({
+                runtime: session.runtime,
                 sessionName: session.session_name,
             });
         }

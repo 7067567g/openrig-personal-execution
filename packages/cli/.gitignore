@@ -1,11 +1,7 @@
-# Build outputs assembled by scripts/build-package.sh.
-#
-# In the upstream development repository these are regenerated on demand and are
-# therefore ignored. In this packaged snapshot they are SHIPPED artifacts: the
-# CLI resolves its daemon and UI bundles from these directories, so ignoring them
-# would produce a repository that cannot run without a rebuild. They are listed
-# in PACKAGE-MANIFEST.json and covered by SHA256SUMS.
-#
-# Regenerate with: npm run build:package
+# Build artifacts assembled by scripts/build-package.sh
+daemon/
+ui/
 
-# No ignore rules here on purpose.
+# Root license and README copied by the CLI build
+/LICENSE
+/README.md

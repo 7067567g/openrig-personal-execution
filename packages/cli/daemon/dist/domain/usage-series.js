@@ -159,6 +159,8 @@ export function computeTopBurn(db, q) {
 /** A Claude estimate older than this reads stale (it stays shown, as history). Matches context freshness. */
 export const COST_STALE_AFTER_MS = 10 * 60_000;
 export const CODEX_NO_COST_NOTE = "no cost reported by the inspected method (Codex token_count events carry tokens only)";
+/** DSH's runner reports token usage but no client-side cost; the view says so instead of showing $0. */
+export const DSH_NO_COST_NOTE = "no cost reported by the inspected method (DSH runner reports tokens but no client cost estimate)";
 export const PI_COST_COVERAGE_WITH_CHARGE = "this Pi session's own persisted entries of every usage-bearing kind Pi records (assistant, usage, tool result, compaction, branch summary), each counted once; a model-priced estimate from catalog rates, not a provider charge (OpenRouter's actual charge, where established, is in providerCharge beside it, never added)";
 export const PI_PROVIDER_CHARGE_COVERAGE = "OpenRouter requests Pi made through its openai-completions API with a recorded generation id, looked up with the key OpenRig forwarded only when the runner's observations before and after the request show that key as Pi's credential and no extension, credential-bearing models.json OpenRouter entry or unclassifiable credential source, and none has been seen, nor any reading failed, in the runner's life (models.json is read as Pi reads it, comments included). Conservatively excluded too: any settings.json package entry, and an explicit models.json apiKey even when it names OPENROUTER_API_KEY. Anthropic-messages requests, other credentials, inherited and unknown-origin entries are not looked up. Not observable: a credential Pi loads and drops between two of the runner's observations (an extension, a models.json entry, or a stored key added and removed within one gap), including runtime effects Pi keeps after it; Pi records no per-request credential";
 export const PI_COST_COVERAGE = "this Pi session's own persisted entries of every usage-bearing kind Pi records (assistant, usage, tool result, compaction, branch summary), each counted once; a model-priced estimate from catalog rates, not a provider charge (an OpenRouter actual charge isn't correlated here)";
@@ -182,6 +184,15 @@ export function computeCostView(db, q) {
         const asOf = latest.sampled_at ?? latest.captured_at;
         if (latest.source === "codex_token_count_jsonl") {
             seats.push({ seatSession, runtime: "codex", status: "no-cost-method", note: CODEX_NO_COST_NOTE,
+                window: { nativeSessionId: latest.native_session_id, asOf }, tokens });
+            continue;
+        }
+        if (latest.source === "opencode_runner_json") {
+            seats.push(opencodeSeatCost({ seatSession, seatRows, latest, now, staleAfter, withCost, tokens }));
+            continue;
+        }
+        if (latest.source === "dsh_runner_json") {
+            seats.push({ seatSession, runtime: "dsh", status: "no-cost-method", note: DSH_NO_COST_NOTE,
                 window: { nativeSessionId: latest.native_session_id, asOf }, tokens });
             continue;
         }
@@ -228,6 +239,47 @@ export function computeCostView(db, q) {
             seats.push(pi);
     }
     return { seats, note };
+}
+/**
+ * OpenCode's runner reports a per-step cost in `step_finish`; the series stores the cumulative estimate per
+ * native session. Same reading as Claude's arm: a drop within the session is a reset, the figure is the latest
+ * reported value (never summed), and an old one is stale, not zero.
+ */
+function opencodeSeatCost(input) {
+    const { seatSession, seatRows, latest, now, staleAfter, withCost, tokens } = input;
+    const session = latest.native_session_id;
+    const asOf = latest.sampled_at ?? latest.captured_at;
+    const estimates = session
+        ? seatRows.filter((r) => r.native_session_id === session && r.client_cost_estimate_usd !== null)
+        : [];
+    if (estimates.length === 0) {
+        return {
+            seatSession, runtime: "opencode", status: "absent",
+            reason: !withCost ? "this daemon's usage series has no cost columns yet"
+                : !session ? "the latest sample names no native session"
+                    : "OpenCode's step_finish events have reported no cost for this session",
+            window: { nativeSessionId: session, asOf }, tokens,
+        };
+    }
+    let resets = 0;
+    let since = estimates[0].sampled_at ?? estimates[0].captured_at;
+    for (let i = 1; i < estimates.length; i += 1) {
+        if (estimates[i].client_cost_estimate_usd < estimates[i - 1].client_cost_estimate_usd) {
+            resets += 1;
+            since = estimates[i].sampled_at ?? estimates[i].captured_at;
+        }
+    }
+    const last = estimates[estimates.length - 1];
+    const lastAt = last.sampled_at ?? last.captured_at;
+    const age = Number.isNaN(now) || Number.isNaN(Date.parse(lastAt)) ? null : Math.max(0, Math.round((now - Date.parse(lastAt)) / 1000));
+    return {
+        seatSession, runtime: "opencode", status: "reported", kind: "client-side estimate", source: "OpenCode step_finish cost",
+        costUsd: last.client_cost_estimate_usd,
+        window: { nativeSessionId: session, since, asOf: lastAt },
+        coverage: "this native OpenCode session since its last reset, from the runner's step_finish cost values; a client-side estimate, not an invoice, and not the seat's other sessions",
+        resets, stale: age === null ? true : age * 1000 > staleAfter, ageSeconds: age,
+        tokens: { input: last.total_input_tokens, output: last.total_output_tokens },
+    };
 }
 function hasChargeOutcome(db, piSession) {
     return !!db.prepare("SELECT 1 FROM pi_usage_charges WHERE pi_session_id = ? LIMIT 1").get(piSession);

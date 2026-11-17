@@ -138,13 +138,58 @@ export class ContextUsageStore {
             return this.unknownUsage("parse_error");
         }
         const sidecar = parseCliAgentUsageSidecar(raw);
-        if (!sidecar || sidecar.runtime !== input.runtime)
+        if (!sidecar || sidecar.runtime !== input.runtime || sidecar.sessionName !== input.sessionName) {
             return this.unknownUsage("parse_error");
+        }
+        // A same-name successor writes to the same name-keyed path. The sidecar
+        // names the generation that produced it; compare against the live tenure
+        // before trusting any of its totals. A known live generation with a missing
+        // or different sidecar generation is stale_generation, never inherited.
+        const explicitGeneration = typeof input.occupantGeneration === "string" && input.occupantGeneration.length > 0
+            ? input.occupantGeneration
+            : null;
+        const currentGeneration = explicitGeneration ?? this.resolveOccupantGenerationForSession(input.sessionName);
+        if (currentGeneration !== null && sidecar.occupantGeneration !== currentGeneration) {
+            return this.unknownUsage("stale_generation");
+        }
         return this.normalizeCliAgentUsage(sidecar);
     }
-    /** Map a validated runner usage sidecar to the shared context-usage shape. */
+    /** Resolve the live tenure for a seat name without importing SessionRegistry
+     * (the store owns the same DB). Any failure is UNKNOWN, not a fabricated match. */
+    resolveOccupantGenerationForSession(sessionName) {
+        try {
+            const session = this.db.prepare("SELECT node_id FROM sessions WHERE session_name = ? ORDER BY id DESC LIMIT 1").get(sessionName);
+            if (!session)
+                return null;
+            const tenure = this.db.prepare("SELECT generation_uuid FROM occupant_tenures WHERE node_id = ? ORDER BY generation_ordinal DESC LIMIT 1").get(session.node_id);
+            return tenure?.generation_uuid ?? null;
+        }
+        catch {
+            return null;
+        }
+    }
+    /** Map a validated runner usage sidecar to the shared context-usage shape.
+     * Missing token components remain null; they are never added as zero. */
     normalizeCliAgentUsage(sidecar) {
         const { totals, lastStep, steps } = sidecar;
+        const counters = [
+            totals.input, totals.output, totals.reasoning,
+            totals.cacheRead, totals.cacheWrite, totals.total,
+        ];
+        if (steps <= 0 || counters.every((value) => value === null)) {
+            return this.unknownUsage("no_data");
+        }
+        // Keep partial knowledge honest. An unreported cache/reasoning component
+        // is not assumed to be zero; the coverage block says what was observed.
+        // The aggregate carries only the components actually reported. When a
+        // component is unreported the coverage block below says so; it is never
+        // silently substituted with a zero.
+        const totalInputTokens = totals.input === null
+            ? null
+            : totals.cacheRead === null ? totals.input : totals.input + totals.cacheRead;
+        const totalOutputTokens = totals.output === null
+            ? null
+            : totals.reasoning === null ? totals.output : totals.output + totals.reasoning;
         return {
             availability: "known",
             reason: null,
@@ -153,9 +198,22 @@ export class ContextUsageStore {
             usedPercentage: null,
             remainingPercentage: null,
             contextWindowSize: null,
-            totalInputTokens: totals.input + totals.cacheRead,
-            totalOutputTokens: totals.output + totals.reasoning,
-            currentUsage: this.normalizeCurrentUsage({ steps, totals, lastStep }),
+            totalInputTokens,
+            totalOutputTokens,
+            currentUsage: this.normalizeCurrentUsage({
+                steps,
+                totals,
+                lastStep,
+                ...(sidecar.occupantGeneration ? { occupantGeneration: sidecar.occupantGeneration } : {}),
+                coverage: {
+                    input: totals.input === null ? "not_reported" : "reported",
+                    output: totals.output === null ? "not_reported" : "reported",
+                    reasoning: totals.reasoning === null ? "not_reported" : "reported",
+                    cacheRead: totals.cacheRead === null ? "not_reported" : "reported",
+                    cacheWrite: totals.cacheWrite === null ? "not_reported" : "reported",
+                    total: totals.total === null ? "not_reported" : "reported",
+                },
+            }),
             transcriptPath: null,
             sessionId: sidecar.sessionId ?? null,
             sessionName: sidecar.sessionName,
